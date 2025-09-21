@@ -1,11 +1,13 @@
 """Type definitions for ConvoCast."""
 
 from typing import List, Optional
+
 from pydantic import BaseModel
 
 
 class ConfluenceConfig(BaseModel):
     """Configuration for Confluence connection."""
+
     base_url: str
     username: str
     api_token: str
@@ -13,6 +15,7 @@ class ConfluenceConfig(BaseModel):
 
 class VLLMConfig(BaseModel):
     """Configuration for VLLM connection."""
+
     api_url: str
     api_key: str
     model: str
@@ -20,6 +23,7 @@ class VLLMConfig(BaseModel):
 
 class Config(BaseModel):
     """Main application configuration."""
+
     confluence: ConfluenceConfig
     vllm: VLLMConfig
     output_dir: str
@@ -29,6 +33,7 @@ class Config(BaseModel):
 
 class ConfluencePage(BaseModel):
     """Represents a Confluence page."""
+
     id: str
     title: str
     content: str
@@ -38,15 +43,26 @@ class ConfluencePage(BaseModel):
 
 class QAContent(BaseModel):
     """Question and answer content."""
+
     question: str
     answer: str
 
 
+class PageGroup(BaseModel):
+    """Group of related Confluence pages."""
+
+    name: str
+    pages: List[ConfluencePage]
+    combined_content: str = ""
+
+
 class PodcastEpisode(BaseModel):
     """Podcast episode with Q&A content."""
+
     title: str
     content: List[QAContent]
     audio_path: Optional[str] = None
+    source_pages: Optional[List[str]] = None
 
 
 # Update forward references

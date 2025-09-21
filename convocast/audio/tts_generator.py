@@ -4,7 +4,8 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import List, Callable
+from typing import Callable, List
+
 from rich.console import Console
 
 from ..types import PodcastEpisode
@@ -30,14 +31,16 @@ class TTSGenerator:
         script_path = self.output_dir / f"{filename}.txt"
 
         # Save script file
-        script_path.write_text(script, encoding='utf-8')
+        script_path.write_text(script, encoding="utf-8")
 
         try:
             self._generate_with_say(script, str(audio_path))
             console.print(f"🎵 Audio generated: [green]{audio_path}[/green]")
             return str(audio_path)
         except Exception as e:
-            console.print(f"[red]❌ Failed to generate audio for '{episode.title}': {e}[/red]")
+            console.print(
+                f"[red]❌ Failed to generate audio for '{episode.title}': {e}[/red]"
+            )
             raise
 
     def _generate_with_say(self, text: str, output_path: str) -> None:
@@ -51,17 +54,17 @@ class TTSGenerator:
 
             command = [
                 "say",
-                "-v", "Alex",
-                "-r", str(rate),
-                "-o", output_path,
-                escaped_text
+                "-v",
+                "Alex",
+                "-r",
+                str(rate),
+                "-o",
+                output_path,
+                escaped_text,
             ]
 
             result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 minute timeout
+                command, capture_output=True, text=True, timeout=300  # 5 minute timeout
             )
 
             if result.returncode != 0:
@@ -70,23 +73,25 @@ class TTSGenerator:
         except subprocess.TimeoutExpired:
             raise RuntimeError("Text-to-speech generation timed out")
         except FileNotFoundError:
-            raise RuntimeError("'say' command not found. This feature requires macOS or compatible TTS engine.")
+            raise RuntimeError(
+                "'say' command not found. This feature requires macOS or compatible TTS engine."
+            )
         except Exception as e:
             raise RuntimeError(f"Text-to-speech generation failed: {e}")
 
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename for filesystem compatibility."""
         # Remove or replace invalid characters
-        sanitized = re.sub(r'[^\w\s-]', '', filename)
+        sanitized = re.sub(r"[^\w\s-]", "", filename)
         # Replace spaces with hyphens
-        sanitized = re.sub(r'\s+', '-', sanitized)
+        sanitized = re.sub(r"\s+", "-", sanitized)
         # Convert to lowercase and limit length
         return sanitized.lower()[:50]
 
     def generate_batch(
         self,
         episodes: List[PodcastEpisode],
-        format_script: Callable[[PodcastEpisode], str]
+        format_script: Callable[[PodcastEpisode], str],
     ) -> List[PodcastEpisode]:
         """Generate audio for multiple episodes."""
         results: List[PodcastEpisode] = []
@@ -103,7 +108,9 @@ class TTSGenerator:
                 results.append(updated_episode)
 
             except Exception as e:
-                console.print(f"[yellow]⚠️  Skipping audio generation for '{episode.title}': {e}[/yellow]")
+                console.print(
+                    f"[yellow]⚠️  Skipping audio generation for '{episode.title}': {e}[/yellow]"
+                )
                 # Add episode without audio path
                 results.append(episode)
 

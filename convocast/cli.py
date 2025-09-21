@@ -7,11 +7,11 @@ from typing import Optional
 import click
 from rich.console import Console
 
+from .audio.tts_generator import TTSGenerator
 from .config import get_config
 from .confluence.client import ConfluenceClient
 from .llm.vllm_client import VLLMClient
 from .processors.content_processor import ContentProcessor
-from .audio.tts_generator import TTSGenerator
 
 console = Console()
 
@@ -24,26 +24,15 @@ def main() -> None:
 
 
 @main.command()
+@click.option("-p", "--page-id", required=True, help="Root Confluence page ID")
+@click.option("-o", "--output", default="./output", help="Output directory")
 @click.option(
-    "-p", "--page-id",
-    required=True,
-    help="Root Confluence page ID"
-)
-@click.option(
-    "-o", "--output",
-    default="./output",
-    help="Output directory"
-)
-@click.option(
-    "-m", "--max-pages",
-    default=50,
-    type=int,
-    help="Maximum number of pages to process"
+    "-m", "--max-pages", default=50, type=int, help="Maximum number of pages to process"
 )
 @click.option(
     "--text-only",
     is_flag=True,
-    help="Generate text scripts only, skip audio generation"
+    help="Generate text scripts only, skip audio generation",
 )
 def generate(page_id: str, output: str, max_pages: int, text_only: bool) -> None:
     """Generate podcast from Confluence pages."""
@@ -96,7 +85,7 @@ def generate(page_id: str, output: str, max_pages: int, text_only: bool) -> None
         for episode in episodes:
             script = content_processor.format_for_podcast(episode)
             script_file = scripts_dir / f"{episode.title.replace(' ', '-')}.txt"
-            script_file.write_text(script, encoding='utf-8')
+            script_file.write_text(script, encoding="utf-8")
             console.print(f"📝 Script saved: [blue]{script_file}[/blue]")
 
         # Generate audio if requested
@@ -105,14 +94,15 @@ def generate(page_id: str, output: str, max_pages: int, text_only: bool) -> None
             tts_generator = TTSGenerator(config.output_dir, config.voice_speed)
 
             final_episodes = tts_generator.generate_batch(
-                episodes,
-                content_processor.format_for_podcast
+                episodes, content_processor.format_for_podcast
             )
 
             # Save summary
             summary_file = output_path / "summary.json"
             summary_data = [episode.model_dump() for episode in final_episodes]
-            summary_file.write_text(json.dumps(summary_data, indent=2), encoding='utf-8')
+            summary_file.write_text(
+                json.dumps(summary_data, indent=2), encoding="utf-8"
+            )
             console.print(f"📊 Summary saved: [blue]{summary_file}[/blue]")
 
         console.print("🎉 [bold green]ConvoCast generation complete![/bold green]")
@@ -138,12 +128,13 @@ def validate() -> None:
         console.print("🤖 Testing VLLM connection...")
         vllm_client = VLLMClient(config.vllm)
         response = vllm_client.generate_completion(
-            "Hello, this is a test.",
-            "Respond with 'Connection successful'"
+            "Hello, this is a test.", "Respond with 'Connection successful'"
         )
         console.print(f"VLLM Response: {response}")
 
-        console.print("✅ [bold green]All connections validated successfully![/bold green]")
+        console.print(
+            "✅ [bold green]All connections validated successfully![/bold green]"
+        )
 
     except Exception as e:
         console.print(f"[red]❌ Validation failed: {e}[/red]")

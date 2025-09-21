@@ -22,10 +22,9 @@ class ConfluenceClient:
         self.base_api_url = f"{config.base_url}/wiki/rest/api"
         self.session = requests.Session()
         self.session.auth = (config.username, config.api_token)
-        self.session.headers.update({
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        })
+        self.session.headers.update(
+            {"Accept": "application/json", "Content-Type": "application/json"}
+        )
 
     def get_page(self, page_id: str) -> ConfluencePage:
         """Fetch a single Confluence page by ID."""
@@ -33,18 +32,22 @@ class ConfluenceClient:
             response = self.session.get(
                 f"{self.base_api_url}/content/{page_id}",
                 params={"expand": "body.storage,children.page"},
-                timeout=30
+                timeout=30,
             )
             response.raise_for_status()
 
             page_data = response.json()
-            content = self._extract_text_from_html(page_data["body"]["storage"]["value"])
+            content = self._extract_text_from_html(
+                page_data["body"]["storage"]["value"]
+            )
 
             return ConfluencePage(
                 id=page_data["id"],
                 title=page_data["title"],
                 content=content,
-                url=urljoin(self.config.base_url, f"/wiki{page_data['_links']['webui']}")
+                url=urljoin(
+                    self.config.base_url, f"/wiki{page_data['_links']['webui']}"
+                ),
             )
         except requests.RequestException as e:
             raise RuntimeError(f"Failed to fetch page {page_id}: {e}")
@@ -53,8 +56,7 @@ class ConfluenceClient:
         """Get child page IDs for a given page."""
         try:
             response = self.session.get(
-                f"{self.base_api_url}/content/{page_id}/child/page",
-                timeout=30
+                f"{self.base_api_url}/content/{page_id}/child/page", timeout=30
             )
             response.raise_for_status()
 
@@ -63,7 +65,9 @@ class ConfluenceClient:
         except requests.RequestException as e:
             raise RuntimeError(f"Failed to fetch child pages for {page_id}: {e}")
 
-    def traverse_pages(self, root_page_id: str, max_pages: int = 50) -> List[ConfluencePage]:
+    def traverse_pages(
+        self, root_page_id: str, max_pages: int = 50
+    ) -> List[ConfluencePage]:
         """Traverse pages recursively starting from root page."""
         pages: List[ConfluencePage] = []
         visited: Set[str] = set()
@@ -84,7 +88,9 @@ class ConfluenceClient:
 
                 # Add child pages to queue
                 child_page_ids = self.get_child_pages(page_id)
-                queue.extend([child_id for child_id in child_page_ids if child_id not in visited])
+                queue.extend(
+                    [child_id for child_id in child_page_ids if child_id not in visited]
+                )
 
             except Exception as e:
                 console.print(f"[red]✗ Error processing page {page_id}: {e}[/red]")
@@ -93,19 +99,19 @@ class ConfluenceClient:
 
     def _extract_text_from_html(self, html: str) -> str:
         """Extract clean text content from Confluence HTML."""
-        soup = BeautifulSoup(html, 'lxml')
+        soup = BeautifulSoup(html, "lxml")
 
         # Remove script, style, and metadata elements
-        for element in soup(['script', 'style']):
+        for element in soup(["script", "style"]):
             element.decompose()
 
         # Remove elements with class 'metadata'
-        for element in soup.find_all(class_='metadata'):
+        for element in soup.find_all(class_="metadata"):
             element.decompose()
 
         # Get text and clean whitespace
         text = soup.get_text()
         # Replace multiple whitespace with single space
-        text = re.sub(r'\s+', ' ', text).strip()
+        text = re.sub(r"\s+", " ", text).strip()
 
         return text
