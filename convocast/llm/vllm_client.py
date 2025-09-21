@@ -21,7 +21,9 @@ class VLLMClient:
             }
         )
 
-    def generate_completion(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate_completion(
+        self, prompt: str, system_prompt: Optional[str] = None
+    ) -> str:
         """Generate completion from VLLM API."""
         messages = []
 
@@ -96,6 +98,10 @@ Focus on practical information that helps with onboarding and project understand
         self, combined_content: str, group_name: str, page_titles: List[str]
     ) -> str:
         """Convert a group of related pages to holistic Q&A format for onboarding."""
+        print(f"🔍 VLLM: Starting conversion for group '{group_name}'")
+        print(f"📊 VLLM: Content length: {len(combined_content)} characters")
+        print(f"📄 VLLM: Page titles: {page_titles}")
+
         system_prompt = """You are an expert at creating comprehensive onboarding content for new team members. Your task is to convert multiple related technical documents into a holistic Q&A format that helps new employees understand the project better.
 
 Guidelines:
@@ -105,7 +111,9 @@ Guidelines:
 - Make answers clear, practical, and interconnected
 - Include context about business requirements, system design, and project goals
 - Use a friendly, conversational tone suitable for a podcast
-- Avoid duplicating similar information - synthesize and combine related concepts"""
+- Avoid duplicating similar information - synthesize and combine related concepts
+- ALWAYS format your response as Q: [Question] followed by A: [Answer]
+- Each question and answer should be on separate lines"""
 
         user_prompt = f"""Convert the following group of related Confluence pages into a holistic Q&A format for new team member onboarding:
 
@@ -116,11 +124,24 @@ Source Pages: {', '.join(page_titles)}
 Combined Content:
 {combined_content}
 
-Please create comprehensive questions that a new team member would ask about this topic area, synthesizing information from all the provided pages. Provide clear, helpful answers that connect concepts across the different pages. Format as:
+Please create comprehensive questions that a new team member would ask about this topic area, synthesizing information from all the provided pages. Provide clear, helpful answers that connect concepts across the different pages.
+
+IMPORTANT: Format your response exactly as:
+
+Q: [Question]
+A: [Answer]
 
 Q: [Question]
 A: [Answer]
 
 Focus on providing a complete understanding of this topic area for onboarding purposes."""
 
-        return self.generate_completion(user_prompt, system_prompt)
+        try:
+            print(f"🚀 VLLM: Sending request to API...")
+            response = self.generate_completion(user_prompt, system_prompt)
+            print(f"✅ VLLM: Received response ({len(response)} chars)")
+            print(f"🔍 VLLM: Response preview: {response[:300]}...")
+            return response
+        except Exception as e:
+            print(f"❌ VLLM: Error during API call: {e}")
+            raise

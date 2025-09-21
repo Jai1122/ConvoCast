@@ -162,18 +162,49 @@ class ContentProcessor:
 
     def _combine_page_contents(self, pages: List[ConfluencePage]) -> str:
         """Combine content from multiple pages into a cohesive text."""
+        console.print(f"🔗 Combining content from {len(pages)} pages...")
         combined = ""
         for page in pages:
-            combined += f"\n\n=== {page.title} ===\n{page.content}"
-        return combined.strip()
+            page_content = page.content.strip()
+            console.print(f"📄 Adding '{page.title}' ({len(page_content)} chars)")
+            combined += f"\n\n=== {page.title} ===\n{page_content}"
+
+        result = combined.strip()
+        console.print(f"📚 Combined content total: {len(result)} characters")
+        return result
 
     def _convert_group_to_qa(self, group: PageGroup) -> List[QAContent]:
         """Convert a group of pages to holistic Q&A format."""
+        console.print(
+            f"🔍 Converting group '{group.name}' with {len(group.pages)} pages"
+        )
+        console.print(
+            f"📄 Combined content length: {len(group.combined_content)} characters"
+        )
+
+        if len(group.combined_content.strip()) < 30:
+            console.print(
+                f"[yellow]⚠️  Group '{group.name}' has very little content ({len(group.combined_content)} chars), creating basic Q&A[/yellow]"
+            )
+            # Create a basic Q&A for small content
+            return [
+                QAContent(
+                    question=f"What can you tell me about {group.name.lower()}?",
+                    answer=f"Based on the documentation in {', '.join([p.title for p in group.pages])}: {group.combined_content.strip()}",
+                )
+            ]
+
         try:
+            console.print(f"🤖 Sending to LLM for Q&A generation...")
             qa_response = self.llm_client.convert_group_to_qa(
                 group.combined_content, group.name, [page.title for page in group.pages]
             )
-            return self._parse_qa_response(qa_response)
+            console.print(f"📝 LLM response length: {len(qa_response)} characters")
+            console.print(f"🔍 LLM response preview: {qa_response[:200]}...")
+
+            qa_items = self._parse_qa_response(qa_response)
+            console.print(f"✅ Parsed {len(qa_items)} Q&A items from response")
+            return qa_items
         except Exception as e:
             console.print(
                 f"[red]Failed to convert group '{group.name}' to Q&A: {e}[/red]"
@@ -182,20 +213,50 @@ class ContentProcessor:
 
     def _parse_qa_response(self, response: str) -> List[QAContent]:
         """Parse LLM response into structured Q&A content."""
+        console.print(f"🔍 Parsing response with {len(response.split())} words")
+
         qa_items: List[QAContent] = []
         lines = [line.strip() for line in response.split("\n") if line.strip()]
+        console.print(f"📝 Found {len(lines)} non-empty lines to process")
 
+        # Try primary parsing method (Q: and A: format)
+        qa_items = self._parse_standard_qa_format(lines)
+
+        if not qa_items:
+            console.print(
+                "⚠️  Standard Q&A format parsing failed, trying alternative formats..."
+            )
+            # Try alternative parsing methods
+            qa_items = self._parse_alternative_formats(response)
+
+        console.print(f"✅ Final result: {len(qa_items)} Q&A pairs extracted")
+        return qa_items
+
+    def _parse_standard_qa_format(self, lines: List[str]) -> List[QAContent]:
+        """Parse standard Q: and A: format."""
+        qa_items: List[QAContent] = []
         current_q = ""
         current_a = ""
         is_answer = False
+        questions_found = 0
+        answers_found = 0
 
-        for line in lines:
-            if line.startswith("Q:"):
+        for i, line in enumerate(lines):
+            if (
+                line.startswith("Q:")
+                or re.match(r"^Question \d+:", line)
+                or re.match(r"^\d+\.", line)
+            ):
+                questions_found += 1
+                console.print(f"🙋 Found question #{questions_found}: {line[:50]}...")
+
                 # Save previous Q&A if complete
                 if current_q and current_a:
                     qa_items.append(
                         QAContent(
-                            question=re.sub(r"^Q:\s*", "", current_q).strip(),
+                            question=re.sub(
+                                r"^(Q:\s*|Question \d+:\s*|\d+\.\s*)", "", current_q
+                            ).strip(),
                             answer=re.sub(r"^A:\s*", "", current_a).strip(),
                         )
                     )
@@ -204,7 +265,9 @@ class ContentProcessor:
                 current_a = ""
                 is_answer = False
 
-            elif line.startswith("A:"):
+            elif line.startswith("A:") or line.startswith("Answer:"):
+                answers_found += 1
+                console.print(f"💡 Found answer #{answers_found}: {line[:50]}...")
                 current_a = line
                 is_answer = True
 
@@ -218,13 +281,58 @@ class ContentProcessor:
         if current_q and current_a:
             qa_items.append(
                 QAContent(
-                    question=re.sub(r"^Q:\s*", "", current_q).strip(),
+                    question=re.sub(
+                        r"^(Q:\s*|Question \d+:\s*|\d+\.\s*)", "", current_q
+                    ).strip(),
                     answer=re.sub(r"^A:\s*", "", current_a).strip(),
                 )
             )
 
+        console.print(
+            f"📊 Found {questions_found} questions and {answers_found} answers"
+        )
+        console.print(f"✅ Created {len(qa_items)} complete Q&A pairs")
+
         # Filter out empty Q&A items
-        return [qa for qa in qa_items if qa.question and qa.answer]
+        valid_qa_items = [qa for qa in qa_items if qa.question and qa.answer]
+        filtered_count = len(qa_items) - len(valid_qa_items)
+        if filtered_count > 0:
+            console.print(f"⚠️  Filtered out {filtered_count} incomplete Q&A pairs")
+
+        return valid_qa_items
+
+    def _parse_alternative_formats(self, response: str) -> List[QAContent]:
+        """Try alternative parsing methods if standard format fails."""
+        qa_items: List[QAContent] = []
+
+        # Method 1: Try to extract any patterns that look like questions and answers
+        question_patterns = [
+            r"(?:Question|Q)(?:\s*\d+)?[:\.]?\s*(.+?)(?=(?:Answer|A)[:\.]|$)",
+            r"(\?.+?)(?=(?:Answer|A)[:\.]|$)",
+        ]
+
+        answer_patterns = [
+            r"(?:Answer|A)(?:\s*\d+)?[:\.]?\s*(.+?)(?=(?:Question|Q)[:\.]|$)",
+        ]
+
+        for q_pattern in question_patterns:
+            questions = re.findall(q_pattern, response, re.DOTALL | re.IGNORECASE)
+            for a_pattern in answer_patterns:
+                answers = re.findall(a_pattern, response, re.DOTALL | re.IGNORECASE)
+
+                # Pair up questions and answers
+                for i, question in enumerate(questions):
+                    if i < len(answers):
+                        q_clean = re.sub(r"\s+", " ", question.strip())
+                        a_clean = re.sub(r"\s+", " ", answers[i].strip())
+                        if q_clean and a_clean:
+                            qa_items.append(QAContent(question=q_clean, answer=a_clean))
+
+            if qa_items:
+                console.print(f"✅ Alternative parsing found {len(qa_items)} Q&A pairs")
+                break
+
+        return qa_items
 
     def format_for_podcast(self, episode: PodcastEpisode) -> str:
         """Format episode content for podcast script."""
