@@ -12,6 +12,7 @@ from .config import get_config
 from .confluence.client import ConfluenceClient
 from .llm.vllm_client import VLLMClient
 from .processors.content_processor import ContentProcessor
+from .types import TTSEngine
 
 console = Console()
 
@@ -34,7 +35,35 @@ def main() -> None:
     is_flag=True,
     help="Generate text scripts only, skip audio generation",
 )
-def generate(page_id: str, output: str, max_pages: int, text_only: bool) -> None:
+@click.option(
+    "--tts-engine",
+    type=click.Choice(["pyttsx3", "gtts", "macos_say"]),
+    default="pyttsx3",
+    help="Text-to-speech engine to use",
+)
+@click.option(
+    "--voice-profile",
+    type=click.Choice(
+        [
+            "default",
+            "narrator_male",
+            "narrator_female",
+            "gtts_default",
+            "gtts_british",
+            "macos_alex",
+        ]
+    ),
+    default="default",
+    help="Voice profile to use for audio generation",
+)
+def generate(
+    page_id: str,
+    output: str,
+    max_pages: int,
+    text_only: bool,
+    tts_engine: str,
+    voice_profile: str,
+) -> None:
     """Generate podcast from Confluence pages."""
     try:
         console.print("🚀 [bold]Starting ConvoCast generation...[/bold]")
@@ -91,7 +120,24 @@ def generate(page_id: str, output: str, max_pages: int, text_only: bool) -> None
         # Generate audio if requested
         if not text_only:
             console.print("🎤 Generating audio files...")
-            tts_generator = TTSGenerator(config.output_dir, config.voice_speed)
+
+            # Convert string to enum
+            tts_engine_enum = TTSEngine(tts_engine)
+
+            tts_generator = TTSGenerator(
+                output_dir=config.output_dir,
+                voice_speed=config.voice_speed,
+                engine=tts_engine_enum,
+                voice_profile=voice_profile,
+            )
+
+            # Show available voice profiles
+            console.print(f"🎭 Available voice profiles:")
+            for name, profile in tts_generator.list_available_voices().items():
+                marker = "→" if name == voice_profile else " "
+                console.print(
+                    f"  {marker} {name}: {profile.name} ({profile.engine.value})"
+                )
 
             final_episodes = tts_generator.generate_batch(
                 episodes, content_processor.format_for_podcast
@@ -111,6 +157,26 @@ def generate(page_id: str, output: str, max_pages: int, text_only: bool) -> None
     except Exception as e:
         console.print(f"[red]❌ Error during generation: {e}[/red]")
         raise click.ClickException(str(e))
+
+
+@main.command()
+def list_voices() -> None:
+    """List all available voice profiles."""
+    tts_generator = TTSGenerator("./temp")
+    console.print("🎭 [bold]Available Voice Profiles:[/bold]\n")
+
+    for name, profile in tts_generator.list_available_voices().items():
+        console.print(f"[cyan]{name}[/cyan]")
+        console.print(f"  Name: {profile.name}")
+        console.print(f"  Engine: {profile.engine.value}")
+        console.print(f"  Language: {profile.language}")
+        console.print(f"  Speed: {profile.speed}")
+        if profile.voice_id:
+            console.print(f"  Voice ID: {profile.voice_id}")
+        console.print()
+
+    console.print("💡 Use --voice-profile <name> to select a profile")
+    console.print("💡 Use --tts-engine <engine> to select a TTS engine")
 
 
 @main.command()

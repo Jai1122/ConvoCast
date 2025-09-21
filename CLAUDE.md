@@ -43,9 +43,38 @@ convocast generate --page-id "123456789" --output "./output" --max-pages 25
 # Generate text scripts only (no audio)
 convocast generate --page-id "123456789" --text-only
 
+# Generate with specific TTS engine and voice profile
+convocast generate --page-id "123456789" --tts-engine gtts --voice-profile gtts_british
+
+# List all available voice profiles
+convocast list-voices
+
 # Validate configuration and connections
 convocast validate
 ```
+
+## Audio Generation & Voice Profiles
+
+ConvoCast now supports multiple TTS engines and voice profiles:
+
+### Available TTS Engines:
+- **pyttsx3**: Cross-platform, offline TTS (default)
+- **gtts**: Google Text-to-Speech (requires internet)
+- **macos_say**: macOS built-in 'say' command (macOS only)
+
+### Built-in Voice Profiles:
+- `default`: Standard pyttsx3 voice
+- `narrator_male`: Professional male narrator (pyttsx3)
+- `narrator_female`: Professional female narrator (pyttsx3)
+- `gtts_default`: Google TTS English
+- `gtts_british`: Google TTS British English
+- `macos_alex`: macOS Alex voice
+
+### Audio Output:
+- All audio files are generated in MP3 format
+- Automatic chunking for long content (gTTS)
+- Fallback mechanisms for format conversion
+- Enhanced error handling and debugging
 
 ## Architecture
 

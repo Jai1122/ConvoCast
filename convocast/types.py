@@ -1,5 +1,6 @@
 """Type definitions for ConvoCast."""
 
+from enum import Enum
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -21,6 +22,25 @@ class VLLMConfig(BaseModel):
     model: str
 
 
+class TTSEngine(str, Enum):
+    """Available TTS engines."""
+
+    PYTTSX3 = "pyttsx3"
+    GTTS = "gtts"
+    MACOS_SAY = "macos_say"
+
+
+class VoiceProfile(BaseModel):
+    """Voice profile configuration."""
+
+    name: str
+    engine: TTSEngine
+    voice_id: Optional[str] = None  # Engine-specific voice ID
+    language: str = "en"
+    speed: float = 1.0
+    pitch: float = 1.0
+
+
 class Config(BaseModel):
     """Main application configuration."""
 
@@ -29,6 +49,8 @@ class Config(BaseModel):
     output_dir: str
     max_pages: int
     voice_speed: float
+    tts_engine: TTSEngine = TTSEngine.PYTTSX3
+    voice_profile: Optional[str] = None
 
 
 class ConfluencePage(BaseModel):
