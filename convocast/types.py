@@ -78,13 +78,35 @@ class PageGroup(BaseModel):
     combined_content: str = ""
 
 
+class ConversationSegment(BaseModel):
+    """A segment of conversation with speaker and text."""
+
+    speaker: str  # "alex", "sam", "both", "narrator"
+    text: str
+    duration_seconds: Optional[float] = None
+    audio_path: Optional[str] = None
+
+
+class ConversationStyle(str, Enum):
+    """Available conversation styles."""
+
+    INTERVIEW = "interview"
+    DISCUSSION = "discussion"
+    TEACHING = "teaching"
+
+
 class PodcastEpisode(BaseModel):
-    """Podcast episode with Q&A content."""
+    """Podcast episode with Q&A content and conversation support."""
 
     title: str
     content: List[QAContent]
     audio_path: Optional[str] = None
     source_pages: Optional[List[str]] = None
+
+    # Conversational content
+    dialogue_script: Optional[str] = None
+    conversation_segments: Optional[List[ConversationSegment]] = None
+    conversation_style: ConversationStyle = ConversationStyle.INTERVIEW
 
 
 # Update forward references

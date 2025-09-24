@@ -51,10 +51,23 @@ def main() -> None:
             "gtts_default",
             "gtts_british",
             "macos_alex",
+            "alex_female",
+            "sam_male",
         ]
     ),
     default="default",
     help="Voice profile to use for audio generation",
+)
+@click.option(
+    "--conversation",
+    is_flag=True,
+    help="Generate conversational podcast with multiple speakers",
+)
+@click.option(
+    "--conversation-style",
+    type=click.Choice(["interview", "discussion", "teaching"]),
+    default="interview",
+    help="Style of conversation to generate",
 )
 def generate(
     page_id: str,
@@ -63,6 +76,8 @@ def generate(
     text_only: bool,
     tts_engine: str,
     voice_profile: str,
+    conversation: bool,
+    conversation_style: str,
 ) -> None:
     """Generate podcast from Confluence pages."""
     try:
@@ -85,7 +100,13 @@ def generate(
         vllm_client = VLLMClient(config.vllm)
 
         console.print("⚙️ Setting up content processor...")
-        content_processor = ContentProcessor(vllm_client)
+        if conversation:
+            console.print(
+                f"🎭 Enabling conversational podcast mode ({conversation_style} style)"
+            )
+        content_processor = ContentProcessor(
+            vllm_client, enable_conversation=conversation
+        )
 
         # Fetch pages
         console.print(f"📝 Fetching pages starting from: [bold]{page_id}[/bold]")
@@ -132,12 +153,21 @@ def generate(
             )
 
             # Show available voice profiles
-            console.print(f"🎭 Available voice profiles:")
-            for name, profile in tts_generator.list_available_voices().items():
-                marker = "→" if name == voice_profile else " "
+            if conversation:
+                console.print(f"🎭 Conversation mode: Using Alex (female) & Sam (male)")
                 console.print(
-                    f"  {marker} {name}: {profile.name} ({profile.engine.value})"
+                    f"  → alex_female: {tts_generator.VOICE_PROFILES['alex_female'].name}"
                 )
+                console.print(
+                    f"  → sam_male: {tts_generator.VOICE_PROFILES['sam_male'].name}"
+                )
+            else:
+                console.print(f"🎭 Available voice profiles:")
+                for name, profile in tts_generator.list_available_voices().items():
+                    marker = "→" if name == voice_profile else " "
+                    console.print(
+                        f"  {marker} {name}: {profile.name} ({profile.engine.value})"
+                    )
 
             final_episodes = tts_generator.generate_batch(
                 episodes, content_processor.format_for_podcast

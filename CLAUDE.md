@@ -46,6 +46,9 @@ convocast generate --page-id "123456789" --text-only
 # Generate with specific TTS engine and voice profile
 convocast generate --page-id "123456789" --tts-engine gtts --voice-profile gtts_british
 
+# Generate conversational podcast with multiple speakers
+convocast generate --page-id "123456789" --conversation --conversation-style interview
+
 # List all available voice profiles
 convocast list-voices
 
@@ -75,6 +78,41 @@ ConvoCast now supports multiple TTS engines and voice profiles:
 - Automatic chunking for long content (gTTS)
 - Fallback mechanisms for format conversion
 - Enhanced error handling and debugging
+
+## Conversational Podcasts
+
+ConvoCast now supports **natural conversation generation** with multiple speakers:
+
+### Features:
+- **Two-Speaker Format**: Alex (female host) and Sam (male expert)
+- **Natural Dialogue**: Interruptions, clarifications, and "aha!" moments
+- **AI-Generated Scripts**: LLM converts Q&A into realistic conversations
+- **Multi-Voice Audio**: Different TTS voices for each speaker
+- **Audio Cues**: Supports [BOTH LAUGH], [PAUSE], *emphasis* markers
+
+### Conversation Styles:
+- `interview`: Alex interviews Sam (default)
+- `discussion`: Two hosts explore topics together
+- `teaching`: Teacher-student dynamic
+
+### Example Usage:
+```bash
+# Basic conversational podcast
+convocast generate --page-id "123" --conversation
+
+# With specific style
+convocast generate --page-id "123" --conversation --conversation-style discussion
+
+# Conversational with Google TTS
+convocast generate --page-id "123" --conversation --tts-engine gtts
+```
+
+### How It Works:
+1. **Content Analysis**: Groups related documentation pages
+2. **Q&A Generation**: Creates comprehensive questions/answers
+3. **Dialogue Conversion**: LLM transforms Q&A into natural conversation
+4. **Multi-Voice Audio**: Each speaker gets different voice characteristics
+5. **Segment Combination**: Combines all audio with natural pauses
 
 ## Architecture
 

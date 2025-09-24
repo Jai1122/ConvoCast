@@ -11,7 +11,7 @@ from typing import Callable, Dict, List, Optional
 import pygame
 from rich.console import Console
 
-from ..types import PodcastEpisode, TTSEngine, VoiceProfile
+from ..types import ConversationSegment, PodcastEpisode, TTSEngine, VoiceProfile
 
 console = Console()
 
@@ -70,6 +70,30 @@ class TTSGenerator:
             speed=1.0,
             pitch=1.0,
         ),
+        # Conversation-specific voices
+        "alex_female": VoiceProfile(
+            name="Alex - Female Host",
+            engine=TTSEngine.GTTS,
+            language="en-us",
+            speed=1.0,
+            pitch=1.2,
+        ),
+        "sam_male": VoiceProfile(
+            name="Sam - Male Expert",
+            engine=TTSEngine.PYTTSX3,
+            voice_id="male_voice" if os.name == "posix" else None,
+            language="en",
+            speed=0.95,
+            pitch=0.8,
+        ),
+    }
+
+    # Speaker-to-voice mapping for conversations
+    CONVERSATION_VOICES = {
+        "alex": "alex_female",
+        "sam": "sam_male",
+        "narrator": "default",
+        "both": "narrator",  # For shared segments like laughter
     }
 
     def __init__(
@@ -122,6 +146,131 @@ class TTSGenerator:
                 f"[red]❌ Failed to generate audio for '{episode.title}': {e}[/red]"
             )
             raise
+
+    def generate_conversation_audio(self, episode: PodcastEpisode, script: str) -> str:
+        """Generate multi-speaker audio for conversational episodes."""
+        if not episode.conversation_segments:
+            console.print(
+                "[yellow]⚠️  No conversation segments found, using standard generation[/yellow]"
+            )
+            return self.generate_audio(episode, script)
+
+        console.print(
+            f"🎭 Generating conversation audio with {len(episode.conversation_segments)} segments"
+        )
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        filename = self._sanitize_filename(episode.title)
+
+        # Generate audio for each segment
+        segment_files = []
+        for i, segment in enumerate(episode.conversation_segments):
+            console.print(
+                f"🎤 Processing segment {i+1}/{len(episode.conversation_segments)}: {segment.speaker}"
+            )
+
+            # Clean up audio cues for TTS
+            text = self._clean_audio_cues(segment.text)
+            if not text.strip():
+                continue
+
+            # Get voice profile for this speaker
+            voice_profile_name = self.CONVERSATION_VOICES.get(
+                segment.speaker, "default"
+            )
+            voice_profile = self.VOICE_PROFILES.get(
+                voice_profile_name, self.VOICE_PROFILES["default"]
+            )
+
+            # Generate segment audio
+            segment_filename = f"{filename}_segment_{i:03d}_{segment.speaker}.mp3"
+            segment_path = self.output_dir / segment_filename
+
+            try:
+                self._generate_segment_with_voice(
+                    text, str(segment_path), voice_profile
+                )
+                segment_files.append(str(segment_path))
+
+                # Add pause after each segment for natural conversation flow
+                if segment.speaker in ["alex", "sam"]:
+                    pause_file = self._generate_pause(0.5)  # 0.5 second pause
+                    if pause_file:  # Only add if pause generation succeeded
+                        segment_files.append(pause_file)
+
+            except Exception as e:
+                console.print(
+                    f"[yellow]⚠️  Skipping segment {i+1} due to error: {e}[/yellow]"
+                )
+                continue
+
+        if not segment_files:
+            raise RuntimeError("No audio segments were generated successfully")
+
+        # Combine all segments into final audio
+        final_audio_path = self.output_dir / f"{filename}.mp3"
+        console.print(f"🔗 Combining {len(segment_files)} audio segments...")
+
+        self._combine_audio_files(segment_files, str(final_audio_path))
+
+        # Clean up temporary segment files
+        for segment_file in segment_files:
+            if os.path.exists(segment_file) and "segment_" in segment_file:
+                os.unlink(segment_file)
+
+        console.print(
+            f"🎵 Conversation audio generated: [green]{final_audio_path}[/green]"
+        )
+        return str(final_audio_path)
+
+    def _generate_segment_with_voice(
+        self, text: str, output_path: str, voice_profile: VoiceProfile
+    ) -> None:
+        """Generate audio segment with specific voice profile."""
+        # Temporarily switch to the segment's voice profile
+        original_voice = self.voice_profile
+        self.voice_profile = voice_profile
+
+        try:
+            if voice_profile.engine == TTSEngine.PYTTSX3:
+                self._generate_with_pyttsx3(text, output_path)
+            elif voice_profile.engine == TTSEngine.GTTS:
+                self._generate_with_gtts(text, output_path)
+            elif voice_profile.engine == TTSEngine.MACOS_SAY:
+                self._generate_with_say(text, output_path)
+            else:
+                raise ValueError(f"Unsupported TTS engine: {voice_profile.engine}")
+        finally:
+            # Restore original voice profile
+            self.voice_profile = original_voice
+
+    def _clean_audio_cues(self, text: str) -> str:
+        """Remove audio cues that shouldn't be spoken."""
+        # Remove audio cues in brackets
+        text = re.sub(r"\[.*?\]", "", text)
+        # Remove emphasis markers
+        text = re.sub(r"\*([^*]+)\*", r"\1", text)
+        # Remove interruption markers
+        text = text.replace("--", "")
+        # Clean up extra whitespace
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+
+    def _generate_pause(self, duration_seconds: float) -> str:
+        """Generate a silent pause audio file."""
+        try:
+            # Simple approach: create a very quiet audio file
+            pause_text = " "  # Single space creates minimal audio
+            pause_filename = f"pause_{duration_seconds:.1f}s.mp3"
+            pause_path = self.output_dir / pause_filename
+
+            # Generate very short, quiet audio using default engine
+            self._generate_with_pyttsx3(pause_text, str(pause_path))
+            return str(pause_path)
+
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Could not generate pause: {e}[/yellow]")
+            return ""
 
     def _generate_with_pyttsx3(self, text: str, output_path: str) -> None:
         """Generate audio using pyttsx3 (cross-platform)."""
@@ -325,7 +474,14 @@ class TTSGenerator:
             try:
                 console.print(f"🎤 Generating audio for: [bold]{episode.title}[/bold]")
                 script = format_script(episode)
-                audio_path = self.generate_audio(episode, script)
+
+                # Use conversation audio generation if available
+                if episode.conversation_segments:
+                    console.print("🎭 Using conversational audio generation")
+                    audio_path = self.generate_conversation_audio(episode, script)
+                else:
+                    console.print("📻 Using standard audio generation")
+                    audio_path = self.generate_audio(episode, script)
 
                 updated_episode = episode.model_copy()
                 updated_episode.audio_path = audio_path

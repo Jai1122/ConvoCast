@@ -6,7 +6,14 @@ from typing import Dict, List
 from rich.console import Console
 
 from ..llm.vllm_client import VLLMClient
-from ..types import ConfluencePage, PageGroup, PodcastEpisode, QAContent
+from ..types import (
+    ConfluencePage,
+    ConversationSegment,
+    ConversationStyle,
+    PageGroup,
+    PodcastEpisode,
+    QAContent,
+)
 
 console = Console()
 
@@ -14,9 +21,12 @@ console = Console()
 class ContentProcessor:
     """Processes Confluence pages into podcast episodes."""
 
-    def __init__(self, llm_client: VLLMClient) -> None:
+    def __init__(
+        self, llm_client: VLLMClient, enable_conversation: bool = False
+    ) -> None:
         """Initialize content processor with LLM client."""
         self.llm_client = llm_client
+        self.enable_conversation = enable_conversation
 
     def process_pages(self, pages: List[ConfluencePage]) -> List[PodcastEpisode]:
         """Process multiple pages into podcast episodes using holistic approach."""
@@ -46,13 +56,29 @@ class ContentProcessor:
             try:
                 qa_content = self._convert_group_to_qa(group)
                 if qa_content:
-                    episodes.append(
-                        PodcastEpisode(
-                            title=group.name,
-                            content=qa_content,
-                            source_pages=[page.title for page in group.pages],
-                        )
+                    episode = PodcastEpisode(
+                        title=group.name,
+                        content=qa_content,
+                        source_pages=[page.title for page in group.pages],
+                        conversation_style=ConversationStyle.INTERVIEW,
                     )
+
+                    # Generate conversational content if enabled
+                    if self.enable_conversation:
+                        console.print(f"🎭 Generating conversation for group...")
+                        dialogue_script = self._generate_conversation(
+                            qa_content, group.name
+                        )
+                        if dialogue_script:
+                            episode.dialogue_script = dialogue_script
+                            episode.conversation_segments = (
+                                self._parse_dialogue_segments(dialogue_script)
+                            )
+                            console.print(
+                                f"✅ Generated conversation with {len(episode.conversation_segments)} segments"
+                            )
+
+                    episodes.append(episode)
                     console.print(f"✅ Generated {len(qa_content)} Q&A items for group")
                 else:
                     console.print(f"⚠️  Skipped group - no Q&A content generated")
@@ -334,8 +360,96 @@ class ContentProcessor:
 
         return qa_items
 
+    def _generate_conversation(
+        self, qa_content: List[QAContent], episode_title: str
+    ) -> str:
+        """Generate conversational dialogue from Q&A content."""
+        try:
+            console.print(f"🎭 Converting Q&A to natural conversation...")
+            dialogue_script = self.llm_client.convert_qa_to_conversation(
+                qa_content, episode_title, style="interview"
+            )
+            console.print(
+                f"✅ Generated dialogue script ({len(dialogue_script)} characters)"
+            )
+            return dialogue_script
+        except Exception as e:
+            console.print(
+                f"[red]Failed to generate conversation for '{episode_title}': {e}[/red]"
+            )
+            return ""
+
+    def _parse_dialogue_segments(
+        self, dialogue_script: str
+    ) -> List[ConversationSegment]:
+        """Parse dialogue script into conversation segments."""
+        console.print("🔍 Parsing dialogue into segments...")
+
+        segments = []
+        lines = dialogue_script.split("\n")
+
+        current_speaker = None
+        current_text = ""
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Check for speaker indicators
+            if line.startswith("ALEX:"):
+                if current_speaker and current_text:
+                    segments.append(
+                        ConversationSegment(
+                            speaker=current_speaker.lower(), text=current_text.strip()
+                        )
+                    )
+                current_speaker = "alex"
+                current_text = line[5:].strip()
+
+            elif line.startswith("SAM:"):
+                if current_speaker and current_text:
+                    segments.append(
+                        ConversationSegment(
+                            speaker=current_speaker.lower(), text=current_text.strip()
+                        )
+                    )
+                current_speaker = "sam"
+                current_text = line[4:].strip()
+
+            elif line.startswith("[") and line.endswith("]"):
+                # Audio cue (e.g., [BOTH LAUGH], [PAUSE])
+                audio_cue = line.lower().replace("[", "").replace("]", "")
+                if "both" in audio_cue or "laugh" in audio_cue:
+                    segments.append(ConversationSegment(speaker="both", text=line))
+                else:
+                    segments.append(ConversationSegment(speaker="narrator", text=line))
+
+            else:
+                # Continue current speaker's text
+                if current_speaker and line:
+                    current_text += " " + line
+
+        # Don't forget the last segment
+        if current_speaker and current_text:
+            segments.append(
+                ConversationSegment(
+                    speaker=current_speaker.lower(), text=current_text.strip()
+                )
+            )
+
+        console.print(f"✅ Parsed {len(segments)} conversation segments")
+        return segments
+
     def format_for_podcast(self, episode: PodcastEpisode) -> str:
         """Format episode content for podcast script."""
+        # Use conversational format if available
+        if episode.dialogue_script and episode.conversation_segments:
+            console.print("📻 Using conversational format for podcast")
+            return episode.dialogue_script
+
+        # Fallback to traditional Q&A format
+        console.print("📻 Using traditional Q&A format for podcast")
         intro = f"Welcome to the {episode.title} onboarding episode."
 
         if episode.source_pages:

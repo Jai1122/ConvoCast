@@ -102,39 +102,79 @@ Focus on practical information that helps with onboarding and project understand
         print(f"📊 VLLM: Content length: {len(combined_content)} characters")
         print(f"📄 VLLM: Page titles: {page_titles}")
 
-        system_prompt = """You are an expert at creating comprehensive onboarding content for new team members. Your task is to convert multiple related technical documents into a holistic Q&A format that helps new employees understand the project better.
+        system_prompt = """You are an expert at creating comprehensive onboarding content that will be converted into engaging podcast conversations. Your Q&A content needs to be rich, detailed, and conversation-ready.
 
-Guidelines:
-- Create 5-8 comprehensive questions and answers that span across all the provided content
-- Connect information from different pages to provide holistic understanding
-- Focus on what new team members would want to know about this topic area
-- Make answers clear, practical, and interconnected
-- Include context about business requirements, system design, and project goals
-- Use a friendly, conversational tone suitable for a podcast
-- Avoid duplicating similar information - synthesize and combine related concepts
-- ALWAYS format your response as Q: [Question] followed by A: [Answer]
-- Each question and answer should be on separate lines"""
+=== CONTENT CREATION STRATEGY ===
 
-        user_prompt = f"""Convert the following group of related Confluence pages into a holistic Q&A format for new team member onboarding:
+QUESTION DEVELOPMENT:
+- Create 6-10 comprehensive questions that new team members would naturally ask
+- Progress from basic understanding to practical application
+- Include "why" and "how" questions, not just "what"
+- Frame questions as if a curious colleague is asking
+- Examples: "Why did the team choose this approach?", "How does this fit into the bigger picture?"
 
+ANSWER RICHNESS:
+- Provide detailed answers with context and reasoning
+- Include specific examples from the actual content
+- Explain the "why" behind technical decisions
+- Add background information that makes concepts more understandable
+- Mention real-world implications and use cases
+- Connect concepts across different sections
+
+CONVERSATION READINESS:
+- Write answers that contain natural talking points and examples
+- Include analogies or comparisons that could spark discussion
+- Add context that could lead to follow-up questions
+- Provide enough detail for meaningful conversation expansion
+- Think: "What would make this interesting to discuss?"
+
+=== TECHNICAL QUALITY ===
+- Synthesize information across all provided pages
+- Avoid repetition while ensuring comprehensive coverage
+- Maintain technical accuracy while being accessible
+- Connect concepts to broader understanding
+- Format: Q: [Question] followed by A: [Detailed Answer]"""
+
+        user_prompt = f"""Create rich, conversation-ready Q&A content for "{group_name}" that will become an engaging podcast discussion.
+
+=== SOURCE MATERIAL ===
 Topic Area: {group_name}
-
 Source Pages: {', '.join(page_titles)}
 
-Combined Content:
+Content:
 {combined_content}
 
-Please create comprehensive questions that a new team member would ask about this topic area, synthesizing information from all the provided pages. Provide clear, helpful answers that connect concepts across the different pages.
+=== TASK REQUIREMENTS ===
 
-IMPORTANT: Format your response exactly as:
+Create 6-10 comprehensive Q&A pairs that:
 
-Q: [Question]
-A: [Answer]
+🎯 **QUESTION STRATEGY**:
+1. Start with foundational understanding
+2. Progress to practical applications
+3. Include "why" and "how" questions
+4. Ask about connections and implications
+5. Frame from a new team member's perspective
 
-Q: [Question]
-A: [Answer]
+💡 **EXAMPLE QUESTION TYPES**:
+- "What is [concept] and why is it important to our system?"
+- "How does this fit into the bigger picture of our architecture?"
+- "What are the main benefits/challenges with this approach?"
+- "When would a new developer typically encounter this?"
+- "What should someone know before they start working with this?"
 
-Focus on providing a complete understanding of this topic area for onboarding purposes."""
+📝 **ANSWER REQUIREMENTS**:
+- 3-5 sentences minimum per answer
+- Include specific examples from the source material
+- Explain reasoning and context behind decisions
+- Connect to related concepts and broader implications
+- Add details that could spark interesting discussion
+- Use conversational language that feels natural to speak
+
+🔧 **FORMAT**:
+Q: [Compelling question that a curious colleague would ask]
+A: [Rich, detailed answer with context, examples, and connections]
+
+Focus on creating content that will naturally lead to an engaging, informative conversation between two knowledgeable people discussing fascinating technical topics."""
 
         try:
             print(f"🚀 VLLM: Sending request to API...")
@@ -144,4 +184,132 @@ Focus on providing a complete understanding of this topic area for onboarding pu
             return response
         except Exception as e:
             print(f"❌ VLLM: Error during API call: {e}")
+            raise
+
+    def convert_qa_to_conversation(
+        self, qa_items: List, episode_title: str, style: str = "interview"
+    ) -> str:
+        """Convert Q&A content into natural podcast conversation."""
+        print(f"🎭 VLLM: Converting Q&A to {style} conversation")
+
+        system_prompt = """You are an expert podcast script writer who creates incredibly natural, engaging conversations for technical onboarding. Your specialty is making complex documentation feel like an exciting conversation between knowledgeable friends.
+
+=== CHARACTER PROFILES ===
+
+ALEX (Curious Host - Female Voice):
+- Background: Tech-savvy but always learning, asks the questions listeners are thinking
+- Personality: Enthusiastic, relatable, makes connections to everyday examples
+- Speaking style: Uses "Oh!" "Wait, so..." "That's fascinating!" "Hold on..."
+- Role: Guides the conversation, seeks clarification, celebrates insights
+- Signature phrases: "I love that!", "That makes so much sense!", "Wait, let me make sure I understand..."
+
+SAM (Technical Expert - Male Voice):
+- Background: Deep technical knowledge but excellent at explaining simply
+- Personality: Patient teacher, uses analogies, builds understanding step-by-step
+- Speaking style: Uses "Well, think about it this way..." "Actually..." "The key thing is..."
+- Role: Explains concepts, provides context, shares expertise
+- Signature phrases: "Here's the thing...", "It's actually pretty cool...", "Let me give you an example..."
+
+=== CONVERSATION DYNAMICS ===
+
+NATURAL FLOW PATTERNS:
+1. **Hook Opening**: Start with intrigue or relatable problem
+2. **Discovery Journey**: Alex asks, Sam explains, both have realizations
+3. **Connection Building**: Link concepts to bigger picture
+4. **Practical Application**: "So in practice..." "What this means is..."
+5. **Satisfying Conclusion**: Tie everything together
+
+ADVANCED CONVERSATION TECHNIQUES:
+- **Layered Questions**: Alex asks follow-ups that dive deeper
+- **Thinking Out Loud**: "Hmm, so if I understand correctly..."
+- **Collaborative Building**: Both contribute to explanations
+- **Emotional Reactions**: "Wow!", "Oh no way!", "That's brilliant!"
+- **Real-time Processing**: "Wait, that reminds me of...", "Actually, now I'm curious about..."
+
+=== OUTPUT REQUIREMENTS ===
+
+FORMATTING RULES:
+- "ALEX:" and "SAM:" for speakers (REQUIRED)
+- [BOTH LAUGH] [PAUSE] [EXCITED] [THINKING] for audio cues
+- *emphasis* for vocal stress
+- "--" for natural interruptions
+- "..." for natural pauses/trailing off
+
+QUALITY STANDARDS:
+- Every exchange must advance understanding or engagement
+- No repetitive explanations or circular conversations
+- Each segment should have emotional texture (curiosity, excitement, understanding)
+- Maintain technical accuracy while being conversational
+- Include specific examples and analogies from the source material
+
+CONVERSATION LENGTH: Aim for natural pacing that thoroughly covers topics without rushing."""
+
+        # Convert Q&A items to text format for the prompt
+        qa_text = ""
+        for i, qa in enumerate(qa_items, 1):
+            qa_text += f"\nQ{i}: {qa.question}\nA{i}: {qa.answer}\n"
+
+        user_prompt = f"""Transform this Q&A content into an engaging podcast conversation about "{episode_title}":
+
+{qa_text}
+
+=== EXAMPLE OF DESIRED OUTPUT QUALITY ===
+
+ALEX: Hey everyone! Welcome back to Tech Talk. I'm Alex, and today Sam and I are diving into something that honestly confused me at first-- API documentation.
+
+SAM: *laughs* Oh, I remember when I first encountered APIs. I was like, "What is this mysterious interface thing?"
+
+ALEX: Exactly! So Sam, let's start with the basics. When someone says "API," what should I actually be picturing?
+
+SAM: Well, think about it this way-- you know when you go to a restaurant and you don't need to know how the kitchen works?
+
+ALEX: Sure, I just look at the menu...
+
+SAM: *snaps fingers* Exactly! The menu is like API documentation. It tells you what you can order and how to ask for it, but you don't need to understand the cooking process.
+
+ALEX: Oh wait, that's brilliant! So the API is like... the waiter?
+
+SAM: Yes! The waiter takes your order, communicates with the kitchen, and brings back your food. The API takes requests, talks to the system, and returns data.
+
+[BOTH LAUGH]
+
+ALEX: I love that analogy! Now I'm curious-- in our system specifically, what kinds of "menu items" do developers have access to?
+
+=== YOUR TASK ===
+
+Create a conversation of similar quality and naturalness. Requirements:
+
+🎯 **STRUCTURE**:
+1. **Engaging Hook** (30-45 seconds): Personal connection or intriguing question
+2. **Core Discussion** (8-12 minutes): Cover all Q&A points through natural dialogue
+3. **Practical Connection** (2-3 minutes): Real-world applications
+4. **Memorable Conclusion** (30-45 seconds): Key takeaways
+
+🎭 **CONVERSATION TECHNIQUES**:
+- Alex should ask 3-5 clarifying questions beyond the original Q&A
+- Include 2-3 moments where Alex connects dots: "Oh, so that means..."
+- Sam should provide 1-2 concrete examples/analogies
+- Add 4-6 natural interruptions/overlaps with "--"
+- Include emotional reactions: excitement, understanding, curiosity
+
+🎨 **AUDIO TEXTURE**:
+- [EXCITED], [THINKING], [PAUSE], [BOTH LAUGH] at natural moments
+- Use *emphasis* on key technical terms
+- Natural trailing off with "..." when appropriate
+
+🔧 **TECHNICAL ACCURACY**:
+- Preserve all technical information from the Q&A
+- Expand explanations with relevant context
+- Connect topics to broader understanding
+
+Make this sound like two friends having an exciting discovery conversation about fascinating technology!"""
+
+        try:
+            print(f"🚀 VLLM: Generating conversation script...")
+            response = self.generate_completion(user_prompt, system_prompt)
+            print(f"✅ VLLM: Generated conversation ({len(response)} chars)")
+            print(f"🔍 VLLM: Script preview: {response[:200]}...")
+            return response
+        except Exception as e:
+            print(f"❌ VLLM: Error generating conversation: {e}")
             raise
