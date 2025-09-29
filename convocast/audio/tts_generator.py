@@ -187,21 +187,34 @@ class TTSGenerator:
             segment_path = self.output_dir / segment_filename
 
             try:
+                console.print(f"🎤 Generating audio for: '{text[:50]}...'")
                 self._generate_segment_with_voice(
                     text, str(segment_path), voice_profile
                 )
-                segment_files.append(str(segment_path))
+
+                # Verify the segment was created successfully
+                if os.path.exists(str(segment_path)) and os.path.getsize(str(segment_path)) > 0:
+                    segment_files.append(str(segment_path))
+                    console.print(f"✓ Segment {i+1} generated successfully")
+                else:
+                    console.print(f"[yellow]⚠️  Segment {i+1} file was not created or is empty[/yellow]")
+                    continue
 
                 # Add pause after each segment for natural conversation flow
                 if segment.speaker in ["alex", "sam"]:
-                    pause_file = self._generate_pause(0.5)  # 0.5 second pause
-                    if pause_file:  # Only add if pause generation succeeded
-                        segment_files.append(pause_file)
+                    try:
+                        pause_file = self._generate_pause(0.5)  # 0.5 second pause
+                        if pause_file:  # Only add if pause generation succeeded
+                            segment_files.append(pause_file)
+                    except Exception as pause_error:
+                        console.print(f"[yellow]⚠️  Failed to generate pause: {pause_error}[/yellow]")
 
             except Exception as e:
                 console.print(
                     f"[yellow]⚠️  Skipping segment {i+1} due to error: {e}[/yellow]"
                 )
+                import traceback
+                console.print(f"[yellow]Full error trace: {traceback.format_exc()}[/yellow]")
                 continue
 
         if not segment_files:
@@ -282,29 +295,47 @@ class TTSGenerator:
             # Set voice if specified
             if self.voice_profile.voice_id:
                 voices = engine.getProperty("voices")
-                for voice in voices:
-                    if self.voice_profile.voice_id in voice.id:
-                        engine.setProperty("voice", voice.id)
-                        break
+                if voices:  # Check if voices is not None
+                    for voice in voices:
+                        if voice and self.voice_profile.voice_id in voice.id:
+                            engine.setProperty("voice", voice.id)
+                            break
 
             # Set properties
             rate = engine.getProperty("rate")
-            engine.setProperty(
-                "rate", int(rate * self.voice_profile.speed * self.voice_speed)
-            )
+            if rate:  # Check if rate is not None
+                engine.setProperty(
+                    "rate", int(rate * self.voice_profile.speed * self.voice_speed)
+                )
 
             volume = engine.getProperty("volume")
-            engine.setProperty(
-                "volume", min(1.0, volume * 1.1)
-            )  # Slightly boost volume
+            if volume:  # Check if volume is not None
+                engine.setProperty(
+                    "volume", min(1.0, volume * 1.1)
+                )  # Slightly boost volume
+
+            # pyttsx3 typically saves to WAV format, so use a temp WAV file first
+            if output_path.endswith(".mp3"):
+                temp_wav_path = output_path.replace(".mp3", ".wav")
+            else:
+                temp_wav_path = output_path
 
             # Save to file
-            engine.save_to_file(text, output_path)
+            console.print(f"🎤 Generating audio with pyttsx3 to: {temp_wav_path}")
+            engine.save_to_file(text, temp_wav_path)
             engine.runAndWait()
 
+            # Verify the WAV file was created
+            if not os.path.exists(temp_wav_path) or os.path.getsize(temp_wav_path) == 0:
+                raise RuntimeError(f"pyttsx3 failed to create audio file: {temp_wav_path}")
+
             # Convert to MP3 if needed
-            if not output_path.endswith(".mp3"):
-                self._convert_to_mp3(output_path, output_path.replace(".wav", ".mp3"))
+            if output_path.endswith(".mp3") and temp_wav_path != output_path:
+                console.print(f"🔄 Converting WAV to MP3: {temp_wav_path} -> {output_path}")
+                self._convert_to_mp3(temp_wav_path, output_path)
+                # Clean up temporary WAV file
+                if os.path.exists(temp_wav_path):
+                    os.unlink(temp_wav_path)
 
         except ImportError:
             raise RuntimeError(
@@ -384,8 +415,17 @@ class TTSGenerator:
 
     def _convert_to_mp3(self, input_path: str, output_path: str) -> None:
         """Convert audio file to MP3 format."""
+        # Check if input file exists
+        if not os.path.exists(input_path):
+            raise RuntimeError(f"Input file does not exist: {input_path}")
+
+        # If input is already MP3 and same path, no conversion needed
+        if input_path == output_path and input_path.endswith(".mp3"):
+            return
+
         try:
             # Try using ffmpeg first
+            console.print(f"🔄 Converting {input_path} to MP3 using ffmpeg...")
             result = subprocess.run(
                 [
                     "ffmpeg",
@@ -395,22 +435,30 @@ class TTSGenerator:
                     "libmp3lame",
                     "-b:a",
                     "128k",
+                    "-y",  # Overwrite output file
                     output_path,
-                    "-y",
                 ],
                 capture_output=True,
                 text=True,
+                timeout=60,  # Add timeout to prevent hanging
             )
 
             if result.returncode == 0:
+                console.print(f"✓ Successfully converted to MP3: {output_path}")
                 return
+            else:
+                console.print(f"[yellow]⚠️  ffmpeg conversion failed: {result.stderr}[/yellow]")
         except FileNotFoundError:
-            pass
+            console.print("[yellow]⚠️  ffmpeg not found, using fallback copy[/yellow]")
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]⚠️  ffmpeg conversion timed out, using fallback copy[/yellow]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  ffmpeg conversion error: {e}, using fallback copy[/yellow]")
 
-        # Fallback: just copy if already compatible
+        # Fallback: just copy if already compatible or if ffmpeg failed
         if input_path != output_path:
             import shutil
-
+            console.print(f"📋 Copying {input_path} to {output_path}")
             shutil.copy2(input_path, output_path)
 
     def _combine_audio_files(self, file_paths: List[str], output_path: str) -> None:
