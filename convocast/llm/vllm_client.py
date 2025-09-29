@@ -253,44 +253,55 @@ CONVERSATION LENGTH: Aim for natural pacing that thoroughly covers topics withou
 
 {qa_text}
 
+=== STRICT CONVERSATION RULES ===
+
+**SPEAKER ASSIGNMENT RULES:**
+- ALEX: Always asks questions, seeks clarification, expresses curiosity
+- SAM: Always provides answers, explanations, and technical knowledge
+- Maintain this Q&A dynamic throughout the entire conversation
+
+**QUESTION-ANSWER FLOW:**
+1. For each Q&A pair, ALEX should ask the question (potentially rephrased naturally)
+2. SAM should provide the answer with examples and context
+3. ALEX can ask follow-up questions for clarity
+4. SAM responds with additional details
+
 === EXAMPLE OF DESIRED OUTPUT QUALITY ===
 
-ALEX: Hey everyone! Welcome back to Tech Talk. I'm Alex, and today Sam and I are diving into something that honestly confused me at first-- API documentation.
+ALEX: Hey everyone! Welcome to Tech Talk. I'm Alex, and today I'm here with Sam to dive into API documentation. Sam, I have to admit, when I first heard about APIs, I was completely lost. Can you start by explaining what an API actually is?
 
-SAM: *laughs* Oh, I remember when I first encountered APIs. I was like, "What is this mysterious interface thing?"
+SAM: Absolutely, Alex! Think about it this way - you know when you go to a restaurant and you don't need to know how the kitchen works? You just look at the menu, place your order, and get your food?
 
-ALEX: Exactly! So Sam, let's start with the basics. When someone says "API," what should I actually be picturing?
+ALEX: Sure, that makes sense...
 
-SAM: Well, think about it this way-- you know when you go to a restaurant and you don't need to know how the kitchen works?
+SAM: Well, an API is like the menu and the waiter combined. It tells you what you can request from a system and how to ask for it, but you don't need to understand how the system works internally.
 
-ALEX: Sure, I just look at the menu...
+ALEX: Oh, that's a great analogy! So in our system specifically, what kinds of things can developers actually request through our API?
 
-SAM: *snaps fingers* Exactly! The menu is like API documentation. It tells you what you can order and how to ask for it, but you don't need to understand the cooking process.
+SAM: Great question! In our system, developers can access user data, product information, and transaction history. For example, if you want to get a user's profile, you'd send a GET request to our users endpoint with the user ID.
 
-ALEX: Oh wait, that's brilliant! So the API is like... the waiter?
+ALEX: And that would return what exactly?
 
-SAM: Yes! The waiter takes your order, communicates with the kitchen, and brings back your food. The API takes requests, talks to the system, and returns data.
-
-[BOTH LAUGH]
-
-ALEX: I love that analogy! Now I'm curious-- in our system specifically, what kinds of "menu items" do developers have access to?
+SAM: It returns a JSON object with all the user's information - name, email, preferences, account status, and so on. The beautiful thing is, the developer doesn't need to know that we're pulling from three different databases behind the scenes.
 
 === YOUR TASK ===
 
 Create a conversation of similar quality and naturalness. Requirements:
 
 🎯 **STRUCTURE**:
-1. **Engaging Hook** (30-45 seconds): Personal connection or intriguing question
-2. **Core Discussion** (8-12 minutes): Cover all Q&A points through natural dialogue
-3. **Practical Connection** (2-3 minutes): Real-world applications
-4. **Memorable Conclusion** (30-45 seconds): Key takeaways
+1. **Engaging Hook** (30-45 seconds): Alex introduces topic and expresses curiosity
+2. **Q&A Core Discussion** (8-12 minutes): Each original Q&A becomes a natural exchange
+3. **Practical Connection** (2-3 minutes): Alex asks "how does this apply?" type questions
+4. **Memorable Conclusion** (30-45 seconds): Alex summarizes key learnings
 
 🎭 **CONVERSATION TECHNIQUES**:
-- Alex should ask 3-5 clarifying questions beyond the original Q&A
+- ALEX should ask ALL the questions (original + 3-5 clarifying questions)
+- SAM should provide ALL the answers with examples and context
 - Include 2-3 moments where Alex connects dots: "Oh, so that means..."
-- Sam should provide 1-2 concrete examples/analogies
-- Add 4-6 natural interruptions/overlaps with "--"
-- Include emotional reactions: excitement, understanding, curiosity
+- Sam should provide concrete examples/analogies for every technical concept
+- Add natural interruptions with "--" when Alex seeks clarification
+- ALEX reactions: "That's fascinating!", "Wait, so...", "I see!", "That makes sense!"
+- SAM responses: "Exactly!", "Great question!", "Think of it this way...", "Here's why..."
 
 🎨 **AUDIO TEXTURE**:
 - [EXCITED], [THINKING], [PAUSE], [BOTH LAUGH] at natural moments

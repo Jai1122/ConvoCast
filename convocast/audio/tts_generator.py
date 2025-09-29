@@ -70,21 +70,21 @@ class TTSGenerator:
             speed=1.0,
             pitch=1.0,
         ),
-        # Conversation-specific voices
+        # Conversation-specific voices with distinct characteristics
         "alex_female": VoiceProfile(
-            name="Alex - Female Host",
+            name="Alex - Curious Female Host",
             engine=TTSEngine.GTTS,
-            language="en-us",
-            speed=1.0,
-            pitch=1.2,
+            language="en",  # Standard English for female voice
+            speed=1.05,  # Slightly faster, more energetic
+            pitch=1.2,   # Higher pitch for female voice
         ),
         "sam_male": VoiceProfile(
-            name="Sam - Male Expert",
-            engine=TTSEngine.PYTTSX3,
-            voice_id="male_voice" if os.name == "posix" else None,
+            name="Sam - Knowledgeable Male Expert",
+            engine=TTSEngine.MACOS_SAY,  # Use macOS say for male voice
+            voice_id="Daniel",  # More professional male voice
             language="en",
-            speed=0.95,
-            pitch=0.8,
+            speed=0.9,   # Slower, more thoughtful pace
+            pitch=0.8,   # Lower pitch for male voice
         ),
     }
 
@@ -258,16 +258,40 @@ class TTSGenerator:
             self.voice_profile = original_voice
 
     def _clean_audio_cues(self, text: str) -> str:
-        """Remove audio cues that shouldn't be spoken."""
-        # Remove audio cues in brackets
+        """Remove audio cues and formatting that shouldn't be spoken."""
+        # Remove audio cues in brackets (e.g., [BOTH LAUGH], [PAUSE], [EXCITED])
         text = re.sub(r"\[.*?\]", "", text)
-        # Remove emphasis markers
+
+        # Remove emphasis markers (*word* becomes word)
         text = re.sub(r"\*([^*]+)\*", r"\1", text)
-        # Remove interruption markers
-        text = text.replace("--", "")
-        # Clean up extra whitespace
+
+        # Remove any remaining standalone asterisks
+        text = re.sub(r"\*+", "", text)
+
+        # Remove interruption markers (-- becomes pause)
+        text = text.replace("--", " ")
+
+        # Remove speaker labels if they somehow got through
+        text = re.sub(r"^(ALEX|SAM|NARRATOR):\s*", "", text, flags=re.IGNORECASE)
+
+        # Remove trailing dots that indicate pauses (... becomes natural pause)
+        text = re.sub(r"\.{3,}", ".", text)
+
+        # Clean up markdown-style formatting
+        text = re.sub(r"_{1,2}([^_]+)_{1,2}", r"\1", text)  # _word_ or __word__
+        text = re.sub(r"`([^`]+)`", r"\1", text)  # `code`
+
+        # Remove excessive punctuation
+        text = re.sub(r"[!]{2,}", "!", text)  # !! becomes !
+        text = re.sub(r"[?]{2,}", "?", text)  # ?? becomes ?
+
+        # Clean up extra whitespace and normalize
         text = re.sub(r"\s+", " ", text)
-        return text.strip()
+
+        # Remove leading/trailing whitespace
+        text = text.strip()
+
+        return text
 
     def _generate_pause(self, duration_seconds: float) -> str:
         """Generate a silent pause audio file."""

@@ -77,6 +77,11 @@ class ContentProcessor:
                             console.print(
                                 f"✅ Generated conversation with {len(episode.conversation_segments)} segments"
                             )
+                    else:
+                        # Generate simple Q&A segments without complex conversation
+                        console.print(f"🎙️ Creating simple Q&A structure...")
+                        episode.conversation_segments = self._create_simple_qa_segments(qa_content)
+                        console.print(f"✅ Created {len(episode.conversation_segments)} Q&A segments")
 
                     episodes.append(episode)
                     console.print(f"✅ Generated {len(qa_content)} Q&A items for group")
@@ -439,6 +444,48 @@ class ContentProcessor:
             )
 
         console.print(f"✅ Parsed {len(segments)} conversation segments")
+        return segments
+
+    def _create_simple_qa_segments(self, qa_content: List[QAContent]) -> List[ConversationSegment]:
+        """Create simple Q&A conversation segments without complex dialogue generation."""
+        segments = []
+
+        # Add introduction by Alex
+        segments.append(
+            ConversationSegment(
+                speaker="alex",
+                text="Welcome everyone! I'm Alex, and today I have Sam here with me to discuss some important topics. Sam, let's dive into some key questions."
+            )
+        )
+
+        # Create Q&A exchanges
+        for i, qa in enumerate(qa_content):
+            # Alex asks the question
+            question_text = f"Question {i+1}: {qa.question}"
+            segments.append(
+                ConversationSegment(
+                    speaker="alex",
+                    text=question_text
+                )
+            )
+
+            # Sam provides the answer
+            answer_text = qa.answer
+            segments.append(
+                ConversationSegment(
+                    speaker="sam",
+                    text=answer_text
+                )
+            )
+
+        # Add conclusion by Alex
+        segments.append(
+            ConversationSegment(
+                speaker="alex",
+                text="Thank you Sam for those detailed explanations! That covers all our key topics for today. Thanks everyone for listening!"
+            )
+        )
+
         return segments
 
     def format_for_podcast(self, episode: PodcastEpisode) -> str:
