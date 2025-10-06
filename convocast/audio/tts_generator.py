@@ -111,8 +111,16 @@ class TTSGenerator:
             voice_profile or "default", self.VOICE_PROFILES["default"]
         )
 
-        # Initialize pygame mixer for audio handling
-        pygame.mixer.init()
+        # Initialize pygame mixer for audio handling (with timeout protection)
+        try:
+            import os
+            # Disable pygame's welcome message and potential audio device issues
+            os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "1"
+            pygame.mixer.pre_init(frequency=22050, size=-16, channels=2, buffer=512)
+            pygame.mixer.init()
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Pygame mixer initialization failed: {e}[/yellow]")
+            console.print("[yellow]   Audio combination features may be limited[/yellow]")
 
     def generate_audio(self, episode: PodcastEpisode, script: str) -> str:
         """Generate audio file for a single episode."""
@@ -130,12 +138,16 @@ class TTSGenerator:
                 f"🎤 Using {self.voice_profile.engine.value} engine with profile '{self.voice_profile.name}'"
             )
 
+            # Clean the script before TTS generation to remove asterisks and formatting
+            cleaned_script = self._clean_audio_cues(script)
+            console.print(f"🧹 Cleaned script: {len(script)} → {len(cleaned_script)} characters")
+
             if self.voice_profile.engine == TTSEngine.PYTTSX3:
-                self._generate_with_pyttsx3(script, str(audio_path))
+                self._generate_with_pyttsx3(cleaned_script, str(audio_path))
             elif self.voice_profile.engine == TTSEngine.GTTS:
-                self._generate_with_gtts(script, str(audio_path))
+                self._generate_with_gtts(cleaned_script, str(audio_path))
             elif self.voice_profile.engine == TTSEngine.MACOS_SAY:
-                self._generate_with_say(script, str(audio_path))
+                self._generate_with_say(cleaned_script, str(audio_path))
             else:
                 raise ValueError(f"Unsupported TTS engine: {self.voice_profile.engine}")
 
@@ -259,13 +271,17 @@ class TTSGenerator:
 
     def _clean_audio_cues(self, text: str) -> str:
         """Remove audio cues and formatting that shouldn't be spoken."""
+        if not text:
+            return ""
+
         # Remove audio cues in brackets (e.g., [BOTH LAUGH], [PAUSE], [EXCITED])
         text = re.sub(r"\[.*?\]", "", text)
 
-        # Remove emphasis markers (*word* becomes word)
-        text = re.sub(r"\*([^*]+)\*", r"\1", text)
+        # Remove emphasis markers (*word* becomes word) - handle various patterns
+        text = re.sub(r"\*([^*]+)\*", r"\1", text)  # *word*
+        text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)  # **word**
 
-        # Remove any remaining standalone asterisks
+        # Remove any remaining standalone asterisks (including multiple)
         text = re.sub(r"\*+", "", text)
 
         # Remove interruption markers (-- becomes pause)
@@ -273,6 +289,7 @@ class TTSGenerator:
 
         # Remove speaker labels if they somehow got through
         text = re.sub(r"^(ALEX|SAM|NARRATOR):\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\n(ALEX|SAM|NARRATOR):\s*", "\n", text, flags=re.IGNORECASE)
 
         # Remove trailing dots that indicate pauses (... becomes natural pause)
         text = re.sub(r"\.{3,}", ".", text)
@@ -281,15 +298,23 @@ class TTSGenerator:
         text = re.sub(r"_{1,2}([^_]+)_{1,2}", r"\1", text)  # _word_ or __word__
         text = re.sub(r"`([^`]+)`", r"\1", text)  # `code`
 
+        # Remove problematic characters that might cause TTS issues
+        text = re.sub(r"[#@$%^&+=|\\/<>{}]", "", text)  # Remove special chars
+
         # Remove excessive punctuation
         text = re.sub(r"[!]{2,}", "!", text)  # !! becomes !
         text = re.sub(r"[?]{2,}", "?", text)  # ?? becomes ?
+        text = re.sub(r"[,]{2,}", ",", text)  # ,, becomes ,
 
         # Clean up extra whitespace and normalize
         text = re.sub(r"\s+", " ", text)
 
         # Remove leading/trailing whitespace
         text = text.strip()
+
+        # Safety check: if text is empty after cleaning, return a safe default
+        if not text:
+            return "Content not available for audio generation."
 
         return text
 
