@@ -43,8 +43,8 @@ convocast generate --page-id "123456789" --output "./output" --max-pages 25
 # Generate text scripts only (no audio)
 convocast generate --page-id "123456789" --text-only
 
-# Generate with specific TTS engine and voice profile
-convocast generate --page-id "123456789" --tts-engine gtts --voice-profile gtts_british
+# Generate with specific TTS engine and voice profile (recommended)
+convocast generate --page-id "123456789" --tts-engine edge_tts --voice-profile edge_female
 
 # Generate conversational podcast with multiple speakers
 convocast generate --page-id "123456789" --conversation --conversation-style interview
@@ -61,11 +61,16 @@ convocast validate
 ConvoCast now supports multiple TTS engines and voice profiles:
 
 ### Available TTS Engines:
-- **pyttsx3**: Cross-platform, offline TTS (default)
+- **edge_tts**: Microsoft Edge TTS - high quality, reliable (default, recommended)
+- **pyttsx3**: Cross-platform, offline TTS
 - **gtts**: Google Text-to-Speech (requires internet)
 - **macos_say**: macOS built-in 'say' command (macOS only)
 
 ### Built-in Voice Profiles:
+- `edge_female`: Microsoft Edge female voice (recommended for conversations)
+- `edge_male`: Microsoft Edge male voice (recommended for conversations)
+- `alex_female`: Conversational female host (Alex) - Edge TTS
+- `sam_male`: Technical expert male voice (Sam) - Edge TTS
 - `default`: Standard pyttsx3 voice
 - `narrator_male`: Professional male narrator (pyttsx3)
 - `narrator_female`: Professional female narrator (pyttsx3)

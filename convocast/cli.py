@@ -37,25 +37,27 @@ def main() -> None:
 )
 @click.option(
     "--tts-engine",
-    type=click.Choice(["pyttsx3", "gtts", "macos_say"]),
-    default="pyttsx3",
+    type=click.Choice(["edge_tts", "pyttsx3", "gtts", "macos_say"]),
+    default="edge_tts",
     help="Text-to-speech engine to use",
 )
 @click.option(
     "--voice-profile",
     type=click.Choice(
         [
+            "edge_female",
+            "edge_male",
+            "alex_female",
+            "sam_male",
             "default",
             "narrator_male",
             "narrator_female",
             "gtts_default",
             "gtts_british",
             "macos_alex",
-            "alex_female",
-            "sam_male",
         ]
     ),
-    default="default",
+    default="edge_female",
     help="Voice profile to use for audio generation",
 )
 @click.option(

@@ -70,21 +70,39 @@ class TTSGenerator:
             speed=1.4,
             pitch=1.0,
         ),
-        # Conversation-specific voices with distinct characteristics
+        # Edge-TTS voices (high quality, reliable)
+        "edge_female": VoiceProfile(
+            name="Edge Female - Professional",
+            engine=TTSEngine.EDGE_TTS,
+            voice_id="en-US-JennyNeural",  # Clear female voice
+            language="en-US",
+            speed=1.3,
+            pitch=1.0,
+        ),
+        "edge_male": VoiceProfile(
+            name="Edge Male - Professional",
+            engine=TTSEngine.EDGE_TTS,
+            voice_id="en-US-GuyNeural",  # Clear male voice
+            language="en-US",
+            speed=1.2,
+            pitch=1.0,
+        ),
+        # Conversation-specific voices with distinct characteristics (Updated to use Edge-TTS)
         "alex_female": VoiceProfile(
             name="Alex - Curious Female Host",
-            engine=TTSEngine.GTTS,
-            language="en",  # Standard English for female voice
-            speed=1.4,  # Faster, more energetic
-            pitch=1.2,   # Higher pitch for female voice
+            engine=TTSEngine.EDGE_TTS,
+            voice_id="en-US-AriaNeural",  # Friendly, conversational female voice
+            language="en-US",
+            speed=1.3,  # Energetic pace
+            pitch=1.0,
         ),
         "sam_male": VoiceProfile(
             name="Sam - Knowledgeable Male Expert",
-            engine=TTSEngine.MACOS_SAY,  # Use macOS say for male voice
-            voice_id="Daniel",  # More professional male voice
-            language="en",
-            speed=1.3,   # Faster, but still thoughtful pace
-            pitch=0.8,   # Lower pitch for male voice
+            engine=TTSEngine.EDGE_TTS,
+            voice_id="en-US-DavisNeural",  # Professional, clear male voice
+            language="en-US",
+            speed=1.2,   # Thoughtful pace
+            pitch=1.0,
         ),
     }
 
@@ -111,11 +129,12 @@ class TTSGenerator:
             voice_profile or "default", self.VOICE_PROFILES["default"]
         )
 
-        # Define fallback engine order for robustness
+        # Define fallback engine order for robustness (Edge-TTS first as most reliable)
         self.fallback_engines = [
-            TTSEngine.PYTTSX3,
-            TTSEngine.MACOS_SAY,
+            TTSEngine.EDGE_TTS,
             TTSEngine.GTTS,
+            TTSEngine.MACOS_SAY,
+            TTSEngine.PYTTSX3,
         ]
 
         # Initialize pygame mixer for audio handling (improved settings)
@@ -144,31 +163,53 @@ class TTSGenerator:
         script_path.write_text(script, encoding="utf-8")
 
         try:
-            console.print(
-                f"🎤 Using {self.voice_profile.engine.value} engine with profile '{self.voice_profile.name}'"
-            )
-
             # Clean the script before TTS generation to remove asterisks and formatting
             cleaned_script = self._clean_audio_cues(script)
             console.print(f"🧹 Cleaned script: {len(script)} → {len(cleaned_script)} characters")
 
-            if self.voice_profile.engine == TTSEngine.PYTTSX3:
-                self._generate_with_pyttsx3(cleaned_script, str(audio_path))
-            elif self.voice_profile.engine == TTSEngine.GTTS:
-                self._generate_with_gtts(cleaned_script, str(audio_path))
-            elif self.voice_profile.engine == TTSEngine.MACOS_SAY:
-                self._generate_with_say(cleaned_script, str(audio_path))
-            else:
-                raise ValueError(f"Unsupported TTS engine: {self.voice_profile.engine}")
+            # Try generating with primary engine, then fallbacks
+            audio_generated = False
+            last_error = None
+
+            # List of engines to try (primary first, then fallbacks)
+            engines_to_try = [self.voice_profile.engine] + [
+                engine for engine in self.fallback_engines
+                if engine != self.voice_profile.engine
+            ]
+
+            for engine_attempt in engines_to_try:
+                try:
+                    console.print(f"🎤 Trying {engine_attempt.value} engine...")
+
+                    if engine_attempt == TTSEngine.EDGE_TTS:
+                        self._generate_with_edge_tts(cleaned_script, str(audio_path))
+                    elif engine_attempt == TTSEngine.PYTTSX3:
+                        self._generate_with_pyttsx3(cleaned_script, str(audio_path))
+                    elif engine_attempt == TTSEngine.GTTS:
+                        self._generate_with_gtts(cleaned_script, str(audio_path))
+                    elif engine_attempt == TTSEngine.MACOS_SAY:
+                        self._generate_with_say(cleaned_script, str(audio_path))
+                    else:
+                        continue  # Skip unsupported engines
+
+                    # Validate the generated audio
+                    if self._validate_audio_file(str(audio_path), cleaned_script):
+                        console.print(f"✅ Audio generated successfully with {engine_attempt.value}")
+                        audio_generated = True
+                        break
+                    else:
+                        console.print(f"[yellow]⚠️  {engine_attempt.value} generated invalid audio, trying next engine[/yellow]")
+                        continue
+
+                except Exception as e:
+                    last_error = e
+                    console.print(f"[yellow]⚠️  {engine_attempt.value} failed: {str(e)[:100]}..., trying next engine[/yellow]")
+                    continue
+
+            if not audio_generated:
+                raise RuntimeError(f"All TTS engines failed. Last error: {last_error}")
 
             console.print(f"🎵 Audio generated: [green]{audio_path}[/green]")
-
-            # Validate the generated audio
-            if self._validate_audio_file(str(audio_path), cleaned_script):
-                console.print("✓ Audio file validation passed")
-            else:
-                console.print("[yellow]⚠️  Audio file validation failed - file may be truncated[/yellow]")
-
             return str(audio_path)
         except Exception as e:
             console.print(
@@ -283,7 +324,9 @@ class TTSGenerator:
         self.voice_profile = voice_profile
 
         try:
-            if voice_profile.engine == TTSEngine.PYTTSX3:
+            if voice_profile.engine == TTSEngine.EDGE_TTS:
+                self._generate_with_edge_tts(text, output_path)
+            elif voice_profile.engine == TTSEngine.PYTTSX3:
                 self._generate_with_pyttsx3(text, output_path)
             elif voice_profile.engine == TTSEngine.GTTS:
                 self._generate_with_gtts(text, output_path)
@@ -470,6 +513,56 @@ class TTSGenerator:
             )
         except Exception as e:
             raise RuntimeError(f"pyttsx3 generation failed: {e}")
+
+    def _generate_with_edge_tts(self, text: str, output_path: str) -> None:
+        """Generate audio using Microsoft Edge TTS (high quality, reliable)."""
+        try:
+            import edge_tts
+            import asyncio
+            import tempfile
+
+            # Use voice ID if specified, otherwise default
+            voice = self.voice_profile.voice_id or "en-US-AriaNeural"
+
+            # Calculate rate based on speed setting
+            # Edge-TTS rate format: "+XX%" or "-XX%"
+            speed_percent = int((self.voice_profile.speed * self.voice_speed - 1.0) * 100)
+            rate = f"+{speed_percent}%" if speed_percent >= 0 else f"{speed_percent}%"
+
+            console.print(f"🎤 Edge-TTS: voice={voice}, rate={rate}")
+
+            async def generate_speech():
+                communicate = edge_tts.Communicate(text, voice, rate=rate)
+
+                # Generate to a temporary file first, then convert to MP3 if needed
+                if output_path.endswith('.mp3'):
+                    # Edge-TTS outputs as MP3 by default, perfect!
+                    await communicate.save(output_path)
+                else:
+                    # Save as MP3 then convert if different format needed
+                    temp_mp3 = output_path.replace(os.path.splitext(output_path)[1], '.mp3')
+                    await communicate.save(temp_mp3)
+                    if temp_mp3 != output_path:
+                        self._convert_to_mp3(temp_mp3, output_path)
+                        if os.path.exists(temp_mp3):
+                            os.unlink(temp_mp3)
+
+            # Run the async function
+            asyncio.run(generate_speech())
+
+            # Verify the file was created
+            if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+                raise RuntimeError(f"Edge-TTS failed to create audio file: {output_path}")
+
+            file_size = os.path.getsize(output_path)
+            console.print(f"✓ Edge-TTS generated: {file_size} bytes")
+
+        except ImportError:
+            raise RuntimeError(
+                "edge-tts not available. Install with: pip install edge-tts"
+            )
+        except Exception as e:
+            raise RuntimeError(f"Edge-TTS generation failed: {e}")
 
     def _generate_with_gtts(self, text: str, output_path: str) -> None:
         """Generate audio using Google Text-to-Speech."""

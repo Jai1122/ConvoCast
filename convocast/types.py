@@ -28,6 +28,7 @@ class TTSEngine(str, Enum):
     PYTTSX3 = "pyttsx3"
     GTTS = "gtts"
     MACOS_SAY = "macos_say"
+    EDGE_TTS = "edge_tts"
 
 
 class VoiceProfile(BaseModel):
