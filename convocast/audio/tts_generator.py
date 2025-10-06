@@ -35,7 +35,7 @@ class TTSGenerator:
                 "com.apple.voice.compact.en-US.Samantha" if os.name == "posix" else None
             ),
             language="en",
-            speed=0.9,
+            speed=1.4,
             pitch=0.8,
         ),
         "narrator_female": VoiceProfile(
@@ -45,21 +45,21 @@ class TTSGenerator:
                 "com.apple.voice.compact.en-US.Alex" if os.name == "posix" else None
             ),
             language="en",
-            speed=0.85,
+            speed=1.35,
             pitch=1.1,
         ),
         "gtts_default": VoiceProfile(
             name="Google TTS Default",
             engine=TTSEngine.GTTS,
             language="en",
-            speed=1.0,
+            speed=1.3,
             pitch=1.0,
         ),
         "gtts_british": VoiceProfile(
             name="Google TTS British",
             engine=TTSEngine.GTTS,
             language="en-uk",
-            speed=1.0,
+            speed=1.3,
             pitch=1.0,
         ),
         "macos_alex": VoiceProfile(
@@ -67,7 +67,7 @@ class TTSGenerator:
             engine=TTSEngine.MACOS_SAY,
             voice_id="Alex",
             language="en",
-            speed=1.0,
+            speed=1.4,
             pitch=1.0,
         ),
         # Conversation-specific voices with distinct characteristics
@@ -75,7 +75,7 @@ class TTSGenerator:
             name="Alex - Curious Female Host",
             engine=TTSEngine.GTTS,
             language="en",  # Standard English for female voice
-            speed=1.05,  # Slightly faster, more energetic
+            speed=1.4,  # Faster, more energetic
             pitch=1.2,   # Higher pitch for female voice
         ),
         "sam_male": VoiceProfile(
@@ -83,7 +83,7 @@ class TTSGenerator:
             engine=TTSEngine.MACOS_SAY,  # Use macOS say for male voice
             voice_id="Daniel",  # More professional male voice
             language="en",
-            speed=0.9,   # Slower, more thoughtful pace
+            speed=1.3,   # Faster, but still thoughtful pace
             pitch=0.8,   # Lower pitch for male voice
         ),
     }
@@ -111,13 +111,16 @@ class TTSGenerator:
             voice_profile or "default", self.VOICE_PROFILES["default"]
         )
 
-        # Initialize pygame mixer for audio handling (with timeout protection)
+        # Initialize pygame mixer for audio handling (improved settings)
         try:
             import os
             # Disable pygame's welcome message and potential audio device issues
             os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "1"
-            pygame.mixer.pre_init(frequency=22050, size=-16, channels=2, buffer=512)
+            # Use better audio settings to prevent stopping issues
+            pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=2048)
             pygame.mixer.init()
+            # Set additional mixer settings for better playback
+            pygame.mixer.set_num_channels(8)
         except Exception as e:
             console.print(f"[yellow]⚠️  Pygame mixer initialization failed: {e}[/yellow]")
             console.print("[yellow]   Audio combination features may be limited[/yellow]")
@@ -473,7 +476,7 @@ class TTSGenerator:
             return
 
         try:
-            # Try using ffmpeg first
+            # Try using ffmpeg first with improved settings for better playback
             console.print(f"🔄 Converting {input_path} to MP3 using ffmpeg...")
             result = subprocess.run(
                 [
@@ -483,7 +486,13 @@ class TTSGenerator:
                     "-codec:a",
                     "libmp3lame",
                     "-b:a",
-                    "128k",
+                    "192k",  # Higher bitrate for better quality
+                    "-ar",
+                    "44100",  # Standard sample rate
+                    "-ac",
+                    "2",  # Stereo
+                    "-map_metadata",
+                    "-1",  # Remove metadata that might cause issues
                     "-y",  # Overwrite output file
                     output_path,
                 ],
@@ -511,39 +520,69 @@ class TTSGenerator:
             shutil.copy2(input_path, output_path)
 
     def _combine_audio_files(self, file_paths: List[str], output_path: str) -> None:
-        """Combine multiple audio files into one."""
+        """Combine multiple audio files into one with improved settings."""
         try:
-            # Try using ffmpeg to concatenate
-            concat_list = "|".join(file_paths)
+            # Create a temporary file list for ffmpeg concat
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                for file_path in file_paths:
+                    f.write(f"file '{file_path}'\n")
+                concat_file = f.name
+
+            # Use ffmpeg concat demuxer for better results
             result = subprocess.run(
                 [
                     "ffmpeg",
-                    "-i",
-                    f"concat:{concat_list}",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", concat_file,
                     "-codec:a",
                     "libmp3lame",
                     "-b:a",
-                    "128k",
-                    output_path,
+                    "192k",  # Higher bitrate
+                    "-ar",
+                    "44100",  # Standard sample rate
+                    "-ac",
+                    "2",  # Stereo
+                    "-map_metadata",
+                    "-1",  # Remove metadata
                     "-y",
+                    output_path,
                 ],
                 capture_output=True,
                 text=True,
+                timeout=120,  # Longer timeout for combining
             )
 
-            if result.returncode == 0:
-                return
-        except FileNotFoundError:
-            pass
+            # Clean up temp file
+            os.unlink(concat_file)
 
-        # Fallback: use pygame to combine
+            if result.returncode == 0:
+                console.print(f"✓ Successfully combined {len(file_paths)} audio files")
+                return
+            else:
+                console.print(f"[yellow]⚠️  ffmpeg concat failed: {result.stderr}[/yellow]")
+
+        except FileNotFoundError:
+            console.print("[yellow]⚠️  ffmpeg not found, using fallback method[/yellow]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  ffmpeg concat error: {e}[/yellow]")
+
+        # Fallback: use pygame to combine with better buffering
+        console.print("🔄 Using fallback audio combination method...")
         combined = io.BytesIO()
         for file_path in file_paths:
-            with open(file_path, "rb") as f:
-                combined.write(f.read())
+            try:
+                with open(file_path, "rb") as f:
+                    combined.write(f.read())
+            except Exception as e:
+                console.print(f"[yellow]⚠️  Error reading {file_path}: {e}[/yellow]")
+                continue
 
         with open(output_path, "wb") as f:
             f.write(combined.getvalue())
+
+        console.print(f"✓ Combined {len(file_paths)} audio files using fallback method")
 
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename for filesystem compatibility."""
