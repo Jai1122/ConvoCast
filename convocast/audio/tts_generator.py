@@ -211,6 +211,8 @@ class TTSGenerator:
                 voice_profile_name, self.VOICE_PROFILES["default"]
             )
 
+            console.print(f"🎭 Speaker '{segment.speaker}' → Voice '{voice_profile_name}' → Engine '{voice_profile.engine.value}'")
+
             # Generate segment audio
             segment_filename = f"{filename}_segment_{i:03d}_{segment.speaker}.mp3"
             segment_path = self.output_dir / segment_filename
@@ -791,12 +793,17 @@ class TTSGenerator:
                 console.print(f"🎤 Generating audio for: [bold]{episode.title}[/bold]")
                 script = format_script(episode)
 
+                # Debug: show episode conversation status
+                segment_count = len(episode.conversation_segments) if episode.conversation_segments else 0
+                console.print(f"🔍 Episode has {segment_count} conversation segments")
+
                 # Use conversation audio generation if available
                 if episode.conversation_segments:
                     console.print("🎭 Using conversational audio generation")
+                    console.print(f"🎭 Segments: {[seg.speaker for seg in episode.conversation_segments[:5]]}{'...' if len(episode.conversation_segments) > 5 else ''}")
                     audio_path = self.generate_conversation_audio(episode, script)
                 else:
-                    console.print("📻 Using standard audio generation")
+                    console.print("📻 Using standard audio generation (NO conversation segments)")
                     audio_path = self.generate_audio(episode, script)
 
                 updated_episode = episode.model_copy()

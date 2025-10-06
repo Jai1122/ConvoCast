@@ -63,25 +63,53 @@ class ContentProcessor:
                         conversation_style=ConversationStyle.INTERVIEW,
                     )
 
+                    # Always generate conversation segments for voice switching
+                    console.print(f"🎭 Generating conversation segments (enable_conversation={self.enable_conversation})...")
+
                     # Generate conversational content if enabled
                     if self.enable_conversation:
-                        console.print(f"🎭 Generating conversation for group...")
-                        dialogue_script = self._generate_conversation(
-                            qa_content, group.name
-                        )
-                        if dialogue_script:
-                            episode.dialogue_script = dialogue_script
-                            episode.conversation_segments = (
-                                self._parse_dialogue_segments(dialogue_script)
+                        console.print(f"🎭 Generating LLM-powered conversation for group...")
+                        try:
+                            dialogue_script = self._generate_conversation(
+                                qa_content, group.name
                             )
-                            console.print(
-                                f"✅ Generated conversation with {len(episode.conversation_segments)} segments"
-                            )
+                            if dialogue_script:
+                                episode.dialogue_script = dialogue_script
+                                episode.conversation_segments = (
+                                    self._parse_dialogue_segments(dialogue_script)
+                                )
+                                console.print(
+                                    f"✅ Generated LLM conversation with {len(episode.conversation_segments)} segments"
+                                )
+                                # Debug: show first few speakers
+                                speakers = [seg.speaker for seg in episode.conversation_segments[:6]]
+                                console.print(f"🔍 Speaker sequence: {' → '.join(speakers)}")
+                            else:
+                                console.print("[yellow]⚠️  LLM conversation generation failed, falling back to simple Q&A[/yellow]")
+                                episode.conversation_segments = self._create_simple_qa_segments(qa_content)
+                                console.print(f"✅ Created fallback Q&A with {len(episode.conversation_segments)} segments")
+                                speakers = [seg.speaker for seg in episode.conversation_segments[:6]]
+                                console.print(f"🔍 Speaker sequence: {' → '.join(speakers)}")
+                        except Exception as e:
+                            console.print(f"[yellow]⚠️  LLM conversation error: {e}, using simple Q&A[/yellow]")
+                            episode.conversation_segments = self._create_simple_qa_segments(qa_content)
+                            console.print(f"✅ Created fallback Q&A with {len(episode.conversation_segments)} segments")
+                            speakers = [seg.speaker for seg in episode.conversation_segments[:6]]
+                            console.print(f"🔍 Speaker sequence: {' → '.join(speakers)}")
                     else:
                         # Generate simple Q&A segments without complex conversation
-                        console.print(f"🎙️ Creating simple Q&A structure...")
+                        console.print(f"🎙️ Creating simple Q&A structure (conversation mode disabled)...")
                         episode.conversation_segments = self._create_simple_qa_segments(qa_content)
                         console.print(f"✅ Created {len(episode.conversation_segments)} Q&A segments")
+                        speakers = [seg.speaker for seg in episode.conversation_segments[:6]]
+                        console.print(f"🔍 Speaker sequence: {' → '.join(speakers)}")
+
+                    # Ensure we always have conversation segments
+                    if not episode.conversation_segments:
+                        console.print("[red]⚠️  No conversation segments created! Creating emergency fallback...[/red]")
+                        episode.conversation_segments = self._create_simple_qa_segments(qa_content)
+                        speakers = [seg.speaker for seg in episode.conversation_segments[:6]]
+                        console.print(f"🚨 Emergency Q&A with {len(episode.conversation_segments)} segments: {' → '.join(speakers)}")
 
                     episodes.append(episode)
                     console.print(f"✅ Generated {len(qa_content)} Q&A items for group")
