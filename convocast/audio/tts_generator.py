@@ -222,7 +222,13 @@ class TTSGenerator:
                     elif engine_attempt == TTSEngine.GTTS:
                         self._generate_with_gtts(cleaned_script, str(audio_path))
                     elif engine_attempt == TTSEngine.MACOS_SAY:
-                        self._generate_with_say(cleaned_script, str(audio_path))
+                        try:
+                            self._generate_with_say(cleaned_script, str(audio_path))
+                        except RuntimeError as say_error:
+                            console.print(f"[yellow]⚠️  macOS say failed: {say_error}[/yellow]")
+                            console.print("[yellow]    Falling back to pyttsx3...[/yellow]")
+                            # Fallback to pyttsx3 if say fails
+                            self._generate_with_pyttsx3(cleaned_script, str(audio_path))
                     else:
                         continue  # Skip unsupported engines
 
@@ -614,7 +620,16 @@ class TTSGenerator:
             elif voice_profile.engine == TTSEngine.GTTS:
                 self._generate_with_gtts(text, output_path)
             elif voice_profile.engine == TTSEngine.MACOS_SAY:
-                self._generate_with_say(text, output_path)
+                try:
+                    self._generate_with_say(text, output_path)
+                except RuntimeError as say_error:
+                    console.print(f"[yellow]⚠️  macOS say failed for segment: {say_error}[/yellow]")
+                    console.print("[yellow]    Using pyttsx3 fallback for this segment...[/yellow]")
+                    # Fallback to pyttsx3 for this segment
+                    temp_profile = self.voice_profile
+                    self.voice_profile = self.VOICE_PROFILES.get("default", self.VOICE_PROFILES["default"])
+                    self._generate_with_pyttsx3(text, output_path)
+                    self.voice_profile = temp_profile
             else:
                 raise ValueError(f"Unsupported TTS engine: {voice_profile.engine}")
         finally:
@@ -1009,33 +1024,73 @@ class TTSGenerator:
             raise RuntimeError(f"gTTS generation failed: {e}")
 
     def _generate_with_say(self, text: str, output_path: str) -> None:
-        """Generate audio using macOS 'say' command (improved)."""
+        """Generate audio using macOS 'say' command (improved for WAV output)."""
         try:
             rate = int(self.voice_profile.speed * self.voice_speed * 200)
             voice = self.voice_profile.voice_id or "Alex"
 
-            # Use AIFF format first, then convert
-            temp_path = output_path.replace(".mp3", ".aiff")
+            # Ensure output directory exists
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-            command = ["say", "-v", voice, "-r", str(rate), "-o", temp_path, text]
+            # Create temporary AIFF file (say command's native format)
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp_file:
+                temp_path = tmp_file.name
+
+            console.print(f"🎤 macOS say: voice={voice}, rate={rate} WPM")
+            console.print(f"🔧 Temporary AIFF: {temp_path}")
+            console.print(f"🎯 Target WAV: {output_path}")
+
+            # Build say command with proper escaping
+            command = ["say", "-v", voice, "-r", str(rate), "-o", temp_path]
+
+            # Add text as final argument (safer for special characters)
+            command.append(text)
+
+            console.print(f"🚀 Running: say -v {voice} -r {rate} -o [temp_file] [text]")
 
             result = subprocess.run(
-                command, capture_output=True, text=True, timeout=300
+                command,
+                capture_output=True,
+                text=True,
+                timeout=300,
+                cwd=os.path.dirname(output_path)  # Set working directory
             )
 
             if result.returncode != 0:
-                raise RuntimeError(f"say command failed: {result.stderr}")
+                error_msg = result.stderr or result.stdout or "Unknown error"
+                console.print(f"❌ say command error: {error_msg}")
+                raise RuntimeError(f"say command failed: {error_msg}")
 
-            # Convert AIFF to MP3 using robust conversion
-            self._convert_to_mp3_robust(temp_path, output_path)
+            # Verify temporary AIFF file was created
+            if not os.path.exists(temp_path):
+                raise RuntimeError(f"say command did not create output file: {temp_path}")
+
+            file_size = os.path.getsize(temp_path)
+            if file_size == 0:
+                raise RuntimeError(f"say command created empty file: {temp_path}")
+
+            console.print(f"✅ AIFF generated: {file_size} bytes")
+
+            # Convert AIFF to WAV using built-in Python modules
+            console.print("🔄 Converting AIFF to WAV...")
+            self._convert_aiff_to_wav(temp_path, output_path)
 
             # Clean up temporary AIFF file
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
+                console.print("🧹 Cleaned up temporary AIFF file")
 
         except FileNotFoundError:
             raise RuntimeError("'say' command not found. This feature requires macOS.")
         except Exception as e:
+            console.print(f"❌ macOS say generation failed: {e}")
+            # Clean up temp file if it exists
+            try:
+                if 'temp_path' in locals() and os.path.exists(temp_path):
+                    os.unlink(temp_path)
+            except:
+                pass
             raise RuntimeError(f"macOS TTS generation failed: {e}")
 
     def _convert_to_mp3(self, input_path: str, output_path: str) -> None:
