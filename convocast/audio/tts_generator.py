@@ -8,7 +8,6 @@ import tempfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-import pygame
 from rich.console import Console
 
 from ..types import ConversationSegment, PodcastEpisode, TTSEngine, VoiceProfile
@@ -70,39 +69,56 @@ class TTSGenerator:
             speed=1.4,
             pitch=1.0,
         ),
-        # Edge-TTS voices (high quality, reliable)
-        "edge_female": VoiceProfile(
-            name="Edge Female - Professional",
-            engine=TTSEngine.EDGE_TTS,
-            voice_id="en-US-JennyNeural",  # Clear female voice
+        # Piper voices (high quality, fully offline neural TTS)
+        "piper_female": VoiceProfile(
+            name="Piper Female - High Quality Offline",
+            engine=TTSEngine.PIPER,
+            voice_id="en_US-amy-medium",  # Clear female voice
             language="en-US",
             speed=1.3,
             pitch=1.0,
         ),
-        "edge_male": VoiceProfile(
-            name="Edge Male - Professional",
-            engine=TTSEngine.EDGE_TTS,
-            voice_id="en-US-GuyNeural",  # Clear male voice
+        "piper_male": VoiceProfile(
+            name="Piper Male - High Quality Offline",
+            engine=TTSEngine.PIPER,
+            voice_id="en_US-ryan-medium",  # Clear male voice
             language="en-US",
             speed=1.2,
             pitch=1.0,
         ),
-        # Conversation-specific voices with distinct characteristics (Updated to use Edge-TTS)
+        # Conversation-specific voices (Offline neural TTS)
         "alex_female": VoiceProfile(
             name="Alex - Curious Female Host",
-            engine=TTSEngine.EDGE_TTS,
-            voice_id="en-US-AriaNeural",  # Friendly, conversational female voice
+            engine=TTSEngine.PIPER,
+            voice_id="en_US-amy-medium",  # Friendly female voice
             language="en-US",
             speed=1.3,  # Energetic pace
             pitch=1.0,
         ),
         "sam_male": VoiceProfile(
             name="Sam - Knowledgeable Male Expert",
-            engine=TTSEngine.EDGE_TTS,
-            voice_id="en-US-DavisNeural",  # Professional, clear male voice
+            engine=TTSEngine.PIPER,
+            voice_id="en_US-ryan-medium",  # Professional male voice
             language="en-US",
             speed=1.2,   # Thoughtful pace
             pitch=1.0,
+        ),
+        # eSpeak voices (lightweight offline backup)
+        "espeak_female": VoiceProfile(
+            name="eSpeak Female - Lightweight Offline",
+            engine=TTSEngine.ESPEAK,
+            voice_id="en+f3",  # Female voice variant 3
+            language="en",
+            speed=1.4,
+            pitch=1.1,
+        ),
+        "espeak_male": VoiceProfile(
+            name="eSpeak Male - Lightweight Offline",
+            engine=TTSEngine.ESPEAK,
+            voice_id="en+m3",  # Male voice variant 3
+            language="en",
+            speed=1.3,
+            pitch=0.9,
         ),
     }
 
@@ -129,16 +145,18 @@ class TTSGenerator:
             voice_profile or "default", self.VOICE_PROFILES["default"]
         )
 
-        # Define fallback engine order for robustness (Edge-TTS first as most reliable)
+        # Define fallback engine order for robustness (fully offline first)
         self.fallback_engines = [
-            TTSEngine.EDGE_TTS,
-            TTSEngine.GTTS,
-            TTSEngine.MACOS_SAY,
-            TTSEngine.PYTTSX3,
+            TTSEngine.PIPER,      # Best quality offline neural TTS
+            TTSEngine.PYTTSX3,    # Cross-platform offline
+            TTSEngine.MACOS_SAY,  # macOS high quality offline
+            TTSEngine.ESPEAK,     # Lightweight offline backup
+            TTSEngine.GTTS,       # Last resort (requires internet)
         ]
 
-        # Initialize pygame mixer for audio handling (improved settings)
+        # Initialize pygame mixer for audio handling (optional)
         try:
+            import pygame
             import os
             # Disable pygame's welcome message and potential audio device issues
             os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "1"
@@ -147,9 +165,12 @@ class TTSGenerator:
             pygame.mixer.init()
             # Set additional mixer settings for better playback
             pygame.mixer.set_num_channels(8)
+            console.print("✓ Pygame mixer initialized for enhanced audio handling")
+        except ImportError:
+            console.print("[yellow]⚠️  Pygame not available - using basic audio combination[/yellow]")
         except Exception as e:
             console.print(f"[yellow]⚠️  Pygame mixer initialization failed: {e}[/yellow]")
-            console.print("[yellow]   Audio combination features may be limited[/yellow]")
+            console.print("[yellow]   Using basic audio combination[/yellow]")
 
     def generate_audio(self, episode: PodcastEpisode, script: str) -> str:
         """Generate audio file for a single episode."""
@@ -181,8 +202,10 @@ class TTSGenerator:
                 try:
                     console.print(f"🎤 Trying {engine_attempt.value} engine...")
 
-                    if engine_attempt == TTSEngine.EDGE_TTS:
-                        self._generate_with_edge_tts(cleaned_script, str(audio_path))
+                    if engine_attempt == TTSEngine.PIPER:
+                        self._generate_with_piper(cleaned_script, str(audio_path))
+                    elif engine_attempt == TTSEngine.ESPEAK:
+                        self._generate_with_espeak(cleaned_script, str(audio_path))
                     elif engine_attempt == TTSEngine.PYTTSX3:
                         self._generate_with_pyttsx3(cleaned_script, str(audio_path))
                     elif engine_attempt == TTSEngine.GTTS:
@@ -324,8 +347,10 @@ class TTSGenerator:
         self.voice_profile = voice_profile
 
         try:
-            if voice_profile.engine == TTSEngine.EDGE_TTS:
-                self._generate_with_edge_tts(text, output_path)
+            if voice_profile.engine == TTSEngine.PIPER:
+                self._generate_with_piper(text, output_path)
+            elif voice_profile.engine == TTSEngine.ESPEAK:
+                self._generate_with_espeak(text, output_path)
             elif voice_profile.engine == TTSEngine.PYTTSX3:
                 self._generate_with_pyttsx3(text, output_path)
             elif voice_profile.engine == TTSEngine.GTTS:
@@ -404,11 +429,13 @@ class TTSGenerator:
             return ""
 
     def _generate_with_pyttsx3(self, text: str, output_path: str) -> None:
-        """Generate audio using pyttsx3 (cross-platform) with improved reliability."""
+        """Generate audio using pyttsx3 (cross-platform) with maximum reliability."""
         try:
             import pyttsx3
             import time
+            import threading
 
+            # Create a new engine instance for this generation (more reliable)
             engine = pyttsx3.init()
 
             # Set voice if specified
@@ -418,22 +445,24 @@ class TTSGenerator:
                     for voice in voices:
                         if voice and self.voice_profile.voice_id in voice.id:
                             engine.setProperty("voice", voice.id)
+                            console.print(f"🎤 Using voice: {voice.name}")
                             break
 
-            # Set properties
+            # Set properties with validation
             rate = engine.getProperty("rate")
-            if rate:  # Check if rate is not None
-                engine.setProperty(
-                    "rate", int(rate * self.voice_profile.speed * self.voice_speed)
-                )
+            if rate:
+                new_rate = int(rate * self.voice_profile.speed * self.voice_speed)
+                # Clamp rate to reasonable bounds
+                new_rate = max(50, min(500, new_rate))
+                engine.setProperty("rate", new_rate)
+                console.print(f"🎤 Speech rate: {new_rate} WPM")
 
             volume = engine.getProperty("volume")
-            if volume:  # Check if volume is not None
-                engine.setProperty(
-                    "volume", min(1.0, volume * 1.1)
-                )  # Slightly boost volume
+            if volume is not None:
+                new_volume = min(1.0, volume * 1.1)
+                engine.setProperty("volume", new_volume)
 
-            # pyttsx3 typically saves to WAV format, so use a temp WAV file first
+            # Use WAV format for reliability (will convert to MP3 later if needed)
             if output_path.endswith(".mp3"):
                 temp_wav_path = output_path.replace(".mp3", ".wav")
             else:
@@ -442,37 +471,52 @@ class TTSGenerator:
             # Ensure directory exists
             os.makedirs(os.path.dirname(temp_wav_path), exist_ok=True)
 
-            # Save to file with improved error handling
-            console.print(f"🎤 Generating audio with pyttsx3 to: {temp_wav_path}")
+            console.print(f"🎤 Generating {len(text.split())} words with pyttsx3...")
 
-            # Add callback to ensure completion
-            completed = False
-            def on_start():
-                console.print("🎤 TTS generation started...")
+            # Use a more reliable approach with threading and timeout
+            generation_complete = threading.Event()
+            generation_error = None
 
-            def on_finish():
-                nonlocal completed
-                completed = True
-                console.print("✓ TTS generation completed")
+            def generate_audio():
+                nonlocal generation_error
+                try:
+                    engine.save_to_file(text, temp_wav_path)
+                    engine.runAndWait()
+                    generation_complete.set()
+                except Exception as e:
+                    generation_error = e
+                    generation_complete.set()
 
-            # Connect callbacks
-            engine.connect('started-utterance', on_start)
-            engine.connect('finished-utterance', on_finish)
+            # Start generation in separate thread
+            thread = threading.Thread(target=generate_audio)
+            thread.daemon = True
+            thread.start()
 
-            # Generate the audio
-            engine.save_to_file(text, temp_wav_path)
-            engine.runAndWait()
+            # Wait for completion with timeout
+            if not generation_complete.wait(timeout=120):  # 2 minute timeout
+                raise RuntimeError("pyttsx3 generation timed out")
 
-            # Additional wait to ensure file is fully written
-            time.sleep(0.5)
+            if generation_error:
+                raise generation_error
 
-            # Force engine cleanup to ensure file is finalized
+            # Additional wait for file system sync
+            time.sleep(1.0)
+
+            # Force cleanup
             try:
                 engine.stop()
+                del engine
             except:
                 pass
 
-            # Verify the WAV file was created and has reasonable size
+            # Verify the WAV file was created
+            retry_count = 0
+            while retry_count < 5:
+                if os.path.exists(temp_wav_path) and os.path.getsize(temp_wav_path) > 0:
+                    break
+                time.sleep(0.5)
+                retry_count += 1
+
             if not os.path.exists(temp_wav_path):
                 raise RuntimeError(f"pyttsx3 failed to create audio file: {temp_wav_path}")
 
@@ -480,28 +524,12 @@ class TTSGenerator:
             if file_size == 0:
                 raise RuntimeError(f"pyttsx3 created empty audio file: {temp_wav_path}")
 
-            # Estimate expected file size (very rough: ~8KB per second for basic WAV)
-            estimated_duration = len(text.split()) / 2.5  # ~2.5 words per second
-            min_expected_size = int(estimated_duration * 8000)  # 8KB per second
-
-            if file_size < min_expected_size:
-                console.print(f"[yellow]⚠️  Audio file seems small ({file_size} bytes vs expected ~{min_expected_size})[/yellow]")
-
             console.print(f"✓ WAV file created: {file_size} bytes")
 
-            # Convert to MP3 if needed with additional validation
+            # Convert to MP3 if needed with robust conversion
             if output_path.endswith(".mp3") and temp_wav_path != output_path:
-                console.print(f"🔄 Converting WAV to MP3: {temp_wav_path} -> {output_path}")
-                self._convert_to_mp3(temp_wav_path, output_path)
-
-                # Validate the MP3 was created properly
-                if os.path.exists(output_path):
-                    mp3_size = os.path.getsize(output_path)
-                    console.print(f"✓ MP3 file created: {mp3_size} bytes")
-                    if mp3_size == 0:
-                        raise RuntimeError(f"MP3 conversion resulted in empty file: {output_path}")
-                else:
-                    raise RuntimeError(f"MP3 conversion failed - file not created: {output_path}")
+                console.print(f"🔄 Converting WAV to MP3...")
+                self._convert_to_mp3_robust(temp_wav_path, output_path)
 
                 # Clean up temporary WAV file
                 if os.path.exists(temp_wav_path):
@@ -514,55 +542,151 @@ class TTSGenerator:
         except Exception as e:
             raise RuntimeError(f"pyttsx3 generation failed: {e}")
 
-    def _generate_with_edge_tts(self, text: str, output_path: str) -> None:
-        """Generate audio using Microsoft Edge TTS (high quality, reliable)."""
+    def _generate_with_espeak(self, text: str, output_path: str) -> None:
+        """Generate audio using eSpeak (lightweight, fully offline)."""
         try:
-            import edge_tts
-            import asyncio
-            import tempfile
+            # Calculate speed in words per minute (eSpeak format)
+            # eSpeak default is ~175 wpm, we'll scale based on our speed setting
+            speed_wpm = int(175 * self.voice_profile.speed * self.voice_speed)
 
-            # Use voice ID if specified, otherwise default
-            voice = self.voice_profile.voice_id or "en-US-AriaNeural"
+            # Get voice setting
+            voice = self.voice_profile.voice_id or "en"
 
-            # Calculate rate based on speed setting
-            # Edge-TTS rate format: "+XX%" or "-XX%"
-            speed_percent = int((self.voice_profile.speed * self.voice_speed - 1.0) * 100)
-            rate = f"+{speed_percent}%" if speed_percent >= 0 else f"{speed_percent}%"
+            # Prepare output path - eSpeak can output WAV directly
+            if output_path.endswith('.mp3'):
+                temp_wav = output_path.replace('.mp3', '.wav')
+            else:
+                temp_wav = output_path
 
-            console.print(f"🎤 Edge-TTS: voice={voice}, rate={rate}")
+            console.print(f"🎤 eSpeak: voice={voice}, speed={speed_wpm}wpm")
 
-            async def generate_speech():
-                communicate = edge_tts.Communicate(text, voice, rate=rate)
+            # Build eSpeak command
+            command = [
+                "espeak",
+                "-v", voice,
+                "-s", str(speed_wpm),
+                "-w", temp_wav,  # Write to WAV file
+                text
+            ]
 
-                # Generate to a temporary file first, then convert to MP3 if needed
-                if output_path.endswith('.mp3'):
-                    # Edge-TTS outputs as MP3 by default, perfect!
-                    await communicate.save(output_path)
-                else:
-                    # Save as MP3 then convert if different format needed
-                    temp_mp3 = output_path.replace(os.path.splitext(output_path)[1], '.mp3')
-                    await communicate.save(temp_mp3)
-                    if temp_mp3 != output_path:
-                        self._convert_to_mp3(temp_mp3, output_path)
-                        if os.path.exists(temp_mp3):
-                            os.unlink(temp_mp3)
+            # Run eSpeak
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
 
-            # Run the async function
-            asyncio.run(generate_speech())
+            if result.returncode != 0:
+                raise RuntimeError(f"eSpeak command failed: {result.stderr}")
 
-            # Verify the file was created
-            if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-                raise RuntimeError(f"Edge-TTS failed to create audio file: {output_path}")
+            # Verify WAV file was created
+            if not os.path.exists(temp_wav) or os.path.getsize(temp_wav) == 0:
+                raise RuntimeError(f"eSpeak failed to create audio file: {temp_wav}")
+
+            # Convert to MP3 if needed
+            if output_path.endswith('.mp3') and temp_wav != output_path:
+                self._convert_to_mp3(temp_wav, output_path)
+                if os.path.exists(temp_wav):
+                    os.unlink(temp_wav)
 
             file_size = os.path.getsize(output_path)
-            console.print(f"✓ Edge-TTS generated: {file_size} bytes")
+            console.print(f"✓ eSpeak generated: {file_size} bytes")
 
-        except ImportError:
+        except FileNotFoundError:
             raise RuntimeError(
-                "edge-tts not available. Install with: pip install edge-tts"
+                "eSpeak not found. Install with: sudo apt-get install espeak (Linux) or brew install espeak (macOS)"
             )
         except Exception as e:
-            raise RuntimeError(f"Edge-TTS generation failed: {e}")
+            raise RuntimeError(f"eSpeak generation failed: {e}")
+
+    def _generate_with_piper(self, text: str, output_path: str) -> None:
+        """Generate audio using Piper TTS (high-quality offline neural TTS)."""
+        try:
+            import tempfile
+            import json
+
+            # Voice model file (downloaded once and cached)
+            voice_model = self.voice_profile.voice_id or "en_US-amy-medium"
+
+            # Piper models directory - create if doesn't exist
+            models_dir = self.output_dir.parent / "piper_models"
+            models_dir.mkdir(exist_ok=True)
+
+            model_file = models_dir / f"{voice_model}.onnx"
+            config_file = models_dir / f"{voice_model}.onnx.json"
+
+            # Download model if not exists (this is a one-time setup)
+            if not model_file.exists() or not config_file.exists():
+                console.print(f"📥 Downloading Piper model {voice_model} (one-time setup)...")
+                self._download_piper_model(voice_model, models_dir)
+
+            # Calculate speaking rate
+            speaking_rate = self.voice_profile.speed * self.voice_speed
+
+            console.print(f"🎤 Piper: model={voice_model}, rate={speaking_rate:.2f}")
+
+            # Prepare output - Piper outputs WAV by default
+            if output_path.endswith('.mp3'):
+                temp_wav = output_path.replace('.mp3', '.wav')
+            else:
+                temp_wav = output_path
+
+            # Run Piper TTS
+            command = [
+                "piper",
+                "--model", str(model_file),
+                "--config", str(config_file),
+                "--output_file", temp_wav,
+                "--speaking_rate", str(speaking_rate)
+            ]
+
+            # Use subprocess with stdin for text input
+            result = subprocess.run(
+                command,
+                input=text,
+                text=True,
+                capture_output=True,
+                timeout=180
+            )
+
+            if result.returncode != 0:
+                raise RuntimeError(f"Piper command failed: {result.stderr}")
+
+            # Verify WAV file was created
+            if not os.path.exists(temp_wav) or os.path.getsize(temp_wav) == 0:
+                raise RuntimeError(f"Piper failed to create audio file: {temp_wav}")
+
+            # Convert to MP3 if needed
+            if output_path.endswith('.mp3') and temp_wav != output_path:
+                self._convert_to_mp3(temp_wav, output_path)
+                if os.path.exists(temp_wav):
+                    os.unlink(temp_wav)
+
+            file_size = os.path.getsize(output_path)
+            console.print(f"✓ Piper generated: {file_size} bytes")
+
+        except FileNotFoundError:
+            raise RuntimeError(
+                "Piper TTS not found. Install with: pip install piper-tts"
+            )
+        except Exception as e:
+            raise RuntimeError(f"Piper generation failed: {e}")
+
+    def _download_piper_model(self, voice_model: str, models_dir) -> None:
+        """Download Piper voice model (one-time setup)."""
+        # For security and offline requirements, we'll skip automatic downloading
+        # and provide instructions for manual setup
+        model_file = models_dir / f"{voice_model}.onnx"
+        config_file = models_dir / f"{voice_model}.onnx.json"
+
+        console.print(f"[yellow]⚠️  Piper models not found locally[/yellow]")
+        console.print(f"[yellow]To use Piper TTS offline:[/yellow]")
+        console.print(f"[yellow]1. Download {voice_model}.onnx and {voice_model}.onnx.json[/yellow]")
+        console.print(f"[yellow]2. Place them in: {models_dir}[/yellow]")
+        console.print(f"[yellow]3. Install Piper: pip install piper-tts[/yellow]")
+
+        raise RuntimeError(f"Piper models not found. Manual setup required for offline operation.")
 
     def _generate_with_gtts(self, text: str, output_path: str) -> None:
         """Generate audio using Google Text-to-Speech."""
@@ -731,6 +855,57 @@ class TTSGenerator:
             # If we copied a WAV as MP3, warn the user
             if input_path.endswith('.wav') and output_path.endswith('.mp3'):
                 console.print("[yellow]⚠️  Warning: Copied WAV file as MP3 - may have compatibility issues[/yellow]")
+
+    def _convert_to_mp3_robust(self, input_path: str, output_path: str) -> None:
+        """Ultra-robust MP3 conversion with multiple fallback methods."""
+        if not os.path.exists(input_path):
+            raise RuntimeError(f"Input file does not exist: {input_path}")
+
+        input_size = os.path.getsize(input_path)
+        console.print(f"🔍 Converting {input_path} ({input_size} bytes) to MP3")
+
+        # Method 1: Try ffmpeg with simple settings
+        try:
+            result = subprocess.run([
+                "ffmpeg", "-i", input_path, "-codec:a", "mp3",
+                "-b:a", "128k", "-y", output_path
+            ], capture_output=True, text=True, timeout=60)
+
+            if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                console.print(f"✅ ffmpeg conversion successful")
+                return
+        except:
+            pass
+
+        # Method 2: Try lame encoder directly
+        try:
+            result = subprocess.run([
+                "lame", "-b", "128", input_path, output_path
+            ], capture_output=True, text=True, timeout=60)
+
+            if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                console.print(f"✅ lame conversion successful")
+                return
+        except:
+            pass
+
+        # Method 3: Use pydub if available
+        try:
+            from pydub import AudioSegment
+
+            audio = AudioSegment.from_wav(input_path)
+            audio.export(output_path, format="mp3", bitrate="128k")
+
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                console.print(f"✅ pydub conversion successful")
+                return
+        except:
+            pass
+
+        # Method 4: Direct copy as last resort (may cause compatibility issues)
+        console.print("[yellow]⚠️  All conversion methods failed, copying WAV as MP3[/yellow]")
+        import shutil
+        shutil.copy2(input_path, output_path)
 
     def _combine_audio_files(self, file_paths: List[str], output_path: str) -> None:
         """Combine multiple audio files into one with improved settings."""

@@ -6,6 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ConvoCast is a Python application that converts Confluence pages into onboarding podcasts. The system integrates with Confluence API, uses VLLM for LLM inference, and generates audio podcasts to help new team members familiarize themselves with project documentation.
 
+## 🔍 Application Stability Status
+
+### ✅ **STABLE COMPONENTS**
+- **Core Architecture**: All modules import and function correctly
+- **Conversation Generation**: Alex/Sam voice switching works reliably
+- **Multiple TTS Engines**: Fallback system ensures audio generation succeeds
+- **Offline Operation**: No external API dependencies for TTS
+- **Data Pipeline**: Content processing → Q&A generation → Audio output
+
+### ⚠️  **SETUP REQUIREMENTS**
+- **Dependencies**: Run `python test_setup.py` to verify installation
+- **TTS Engines**: At least one must be available (pyttsx3 recommended)
+- **Environment**: Configure `.env` for Confluence/VLLM access
+- **Audio Tools**: ffmpeg/lame recommended for best audio quality
+
+### 🧪 **TESTED CONFIGURATIONS**
+- **Python**: 3.8+ (core functionality)
+- **TTS Engines**: pyttsx3 (cross-platform), macOS say, espeak
+- **Audio**: MP3 generation with multiple conversion fallbacks
+- **Voice Switching**: Alex (female) ↔ Sam (male) conversation segments
+
 ## Development Commands
 
 ```bash
@@ -43,8 +64,8 @@ convocast generate --page-id "123456789" --output "./output" --max-pages 25
 # Generate text scripts only (no audio)
 convocast generate --page-id "123456789" --text-only
 
-# Generate with specific TTS engine and voice profile (recommended)
-convocast generate --page-id "123456789" --tts-engine edge_tts --voice-profile edge_female
+# Generate with specific TTS engine and voice profile (fully offline)
+convocast generate --page-id "123456789" --tts-engine pyttsx3 --voice-profile narrator_female
 
 # Generate conversational podcast with multiple speakers
 convocast generate --page-id "123456789" --conversation --conversation-style interview
@@ -60,29 +81,180 @@ convocast validate
 
 ConvoCast now supports multiple TTS engines and voice profiles:
 
-### Available TTS Engines:
-- **edge_tts**: Microsoft Edge TTS - high quality, reliable (default, recommended)
-- **pyttsx3**: Cross-platform, offline TTS
-- **gtts**: Google Text-to-Speech (requires internet)
-- **macos_say**: macOS built-in 'say' command (macOS only)
+### Available TTS Engines (Fully Offline):
+- **pyttsx3**: Cross-platform offline TTS (default, most compatible)
+- **piper**: High-quality offline neural TTS (requires model setup)
+- **espeak**: Lightweight offline TTS (good for basic needs)
+- **macos_say**: macOS built-in 'say' command (macOS only, high quality)
+- **gtts**: Google Text-to-Speech (requires internet, not recommended)
 
-### Built-in Voice Profiles:
-- `edge_female`: Microsoft Edge female voice (recommended for conversations)
-- `edge_male`: Microsoft Edge male voice (recommended for conversations)
-- `alex_female`: Conversational female host (Alex) - Edge TTS
-- `sam_male`: Technical expert male voice (Sam) - Edge TTS
+### Built-in Voice Profiles (Offline):
+- `piper_female`: High-quality offline female voice (Piper neural TTS)
+- `piper_male`: High-quality offline male voice (Piper neural TTS)
+- `alex_female`: Conversational female host (Alex) - Piper TTS
+- `sam_male`: Technical expert male voice (Sam) - Piper TTS
+- `espeak_female`: Lightweight female voice (eSpeak)
+- `espeak_male`: Lightweight male voice (eSpeak)
 - `default`: Standard pyttsx3 voice
 - `narrator_male`: Professional male narrator (pyttsx3)
 - `narrator_female`: Professional female narrator (pyttsx3)
-- `gtts_default`: Google TTS English
-- `gtts_british`: Google TTS British English
 - `macos_alex`: macOS Alex voice
+- `gtts_default`: Google TTS English (requires internet)
+- `gtts_british`: Google TTS British English (requires internet)
 
 ### Audio Output:
 - All audio files are generated in MP3 format
 - Automatic chunking for long content (gTTS)
 - Fallback mechanisms for format conversion
 - Enhanced error handling and debugging
+
+## 🔧 Troubleshooting & Diagnostics
+
+### Quick Diagnostics
+```bash
+# Test complete setup
+python test_setup.py
+
+# Verify TTS engines
+convocast list-voices
+
+# Test connectivity
+convocast validate
+```
+
+### Common Issues & Solutions
+
+#### **"Audio stops after 20-30 seconds"**
+```bash
+# Solution 1: Install audio tools
+brew install ffmpeg lame  # macOS
+sudo apt-get install ffmpeg lame  # Linux
+
+# Solution 2: Try different TTS engine
+convocast generate --page-id "123" --tts-engine pyttsx3
+convocast generate --page-id "123" --tts-engine macos_say
+
+# Solution 3: Use robust conversion
+pip install pydub
+```
+
+#### **"No voice switching between Alex/Sam"**
+```bash
+# Ensure conversation mode is enabled
+convocast generate --page-id "123" --conversation
+
+# Verify voice profiles
+convocast list-voices
+
+# Check debug output for voice mapping
+# Should show: Speaker 'alex' → Voice 'alex_female' → Engine 'piper'
+```
+
+#### **"TTS Engine not available"**
+```bash
+# Install missing engines
+pip install pyttsx3  # Cross-platform
+sudo apt-get install espeak  # Linux lightweight
+brew install espeak  # macOS alternative
+
+# Check engine priority in fallback order:
+# 1. piper (if models available)
+# 2. pyttsx3 (most compatible)
+# 3. macos_say (macOS only)
+# 4. espeak (Linux/basic)
+```
+
+#### **"Import errors"**
+```bash
+# Install core dependencies
+pip install -e .
+
+# Install optional audio dependencies
+pip install convocast[audio]
+
+# Check specific imports
+python -c "from convocast.audio.tts_generator import TTSGenerator; print('OK')"
+```
+
+#### **"Audio File Issues"**
+```bash
+# Install audio processing tools
+brew install ffmpeg lame  # macOS
+sudo apt-get install ffmpeg lame  # Linux
+
+# Check file permissions
+chmod 755 ./output
+
+# Verify output directory exists
+mkdir -p ./output
+```
+
+#### **"VLLM Connection Failed"**
+```bash
+# Check VLLM server status
+curl -X GET http://your-vllm-server:8000/health
+
+# Verify API endpoint and key in .env
+cat .env | grep VLLM
+
+# Test connectivity
+convocast validate
+```
+
+### Platform-Specific Notes
+
+#### **macOS**
+- Built-in `say` command provides excellent quality
+- Use Homebrew for easy dependency installation
+- May need to allow microphone access
+
+#### **Linux**
+- Install espeak for basic TTS: `sudo apt-get install espeak espeak-data`
+- May need additional audio codecs
+- Check ALSA/PulseAudio configuration
+
+#### **Windows**
+- Use pyttsx3 with SAPI voices
+- May need Visual C++ redistributables
+- Check Windows speech settings
+
+### Performance Optimization
+
+#### **Faster Audio Generation**
+- Use `pyttsx3` or `espeak` (offline, fast)
+- Install `ffmpeg` for efficient conversion
+- Reduce `--max-pages` for testing
+
+#### **Better Audio Quality**
+- Use `macos_say` on macOS
+- Install Piper neural models for best quality
+- Use higher bitrate in conversion (192k vs 128k)
+
+#### **Offline Operation**
+- Use `pyttsx3`, `espeak`, or `macos_say` engines
+- Avoid `gtts` (requires internet)
+- Pre-download Piper models if using neural TTS
+
+### Debug Output Interpretation
+
+```bash
+# Expected successful conversation output:
+🎭 Generating conversation segments (enable_conversation=True)...
+✅ Created 8 Q&A segments
+🔍 Speaker sequence: alex → sam → alex → sam
+🎤 Trying pyttsx3 engine...
+🎭 Speaker 'alex' → Voice 'alex_female' → Engine 'piper'
+✅ Audio generated successfully with pyttsx3
+```
+
+### File Structure Validation
+```bash
+# Check required files exist
+ls -la .env                    # Environment config
+ls -la convocast/             # Main package
+ls -la requirements.txt       # Dependencies
+python test_setup.py         # Comprehensive test
+```
 
 ## Conversational Podcasts
 

@@ -25,10 +25,11 @@ class VLLMConfig(BaseModel):
 class TTSEngine(str, Enum):
     """Available TTS engines."""
 
+    PIPER = "piper"  # High-quality offline neural TTS
     PYTTSX3 = "pyttsx3"
-    GTTS = "gtts"
+    ESPEAK = "espeak"  # Lightweight offline TTS
     MACOS_SAY = "macos_say"
-    EDGE_TTS = "edge_tts"
+    GTTS = "gtts"  # Keep but not recommended for offline use
 
 
 class VoiceProfile(BaseModel):

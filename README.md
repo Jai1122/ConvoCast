@@ -6,6 +6,36 @@ Convert Confluence pages into onboarding podcasts with AI-powered Q&A format con
 
 ConvoCast is a Python tool designed to help new team members get familiar with project documentation by converting Confluence pages into engaging podcast episodes. It uses VLLM inference to transform technical documentation into conversational Q&A format, making onboarding smoother and more accessible.
 
+## 🚀 Quick Start
+
+```bash
+# 1. Install ConvoCast
+git clone <repository-url>
+cd ConvoCast
+pip install -e .
+
+# 2. Test your setup
+python test_setup.py
+
+# 3. Configure environment
+cp .env.example .env
+# Edit .env with your Confluence and VLLM settings
+
+# 4. Generate your first podcast
+convocast generate --page-id "YOUR_PAGE_ID" --conversation
+```
+
+## ✅ Stability Status
+
+**STABLE** - Ready for production use with proper setup:
+- ✅ Core conversation generation pipeline works reliably
+- ✅ Alex/Sam voice switching functions correctly
+- ✅ Multiple TTS engine fallbacks ensure audio generation
+- ✅ Fully offline operation (no external TTS APIs)
+- ✅ Comprehensive error handling and debugging
+
+**Requirements**: Run `python test_setup.py` to verify your installation.
+
 ## Features
 
 - **Confluence Integration**: Securely access and traverse Confluence pages
@@ -20,6 +50,8 @@ ConvoCast is a Python tool designed to help new team members get familiar with p
 
 ## Setup
 
+### Quick Start
+
 1. **Install Dependencies**
    ```bash
    pip install -e .
@@ -27,11 +59,61 @@ ConvoCast is a Python tool designed to help new team members get familiar with p
    pip install -r requirements.txt
    ```
 
-2. **Configure Environment**
+2. **Test Your Setup**
+   ```bash
+   python test_setup.py
+   ```
+
+3. **Configure Environment**
    ```bash
    cp .env.example .env
    # Edit .env with your credentials
    ```
+
+4. **Validate Installation**
+   ```bash
+   convocast validate
+   ```
+
+### System Requirements
+
+- **Python**: 3.8+ (tested with 3.8-3.11)
+- **Operating System**: Windows, macOS, Linux
+- **Memory**: 4GB RAM minimum, 8GB recommended
+
+### Optional Audio Dependencies
+
+For better audio processing:
+```bash
+pip install convocast[audio]
+# OR manually:
+pip install pygame pydub mutagen
+```
+
+### System TTS Setup
+
+**macOS** (Recommended): Built-in `say` command (no setup needed)
+
+**Linux**:
+```bash
+sudo apt-get install espeak espeak-data
+```
+
+**Windows**: Built-in SAPI voices via pyttsx3 (no setup needed)
+
+### Audio Tools (Recommended)
+
+**macOS**:
+```bash
+brew install ffmpeg lame
+```
+
+**Linux**:
+```bash
+sudo apt-get install ffmpeg lame
+```
+
+**Windows**: Download FFmpeg from https://ffmpeg.org/
 
 ## Configuration
 

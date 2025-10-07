@@ -35,6 +35,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+audio = [
+    "pygame>=2.5.0",  # For enhanced audio handling
+    "mutagen>=1.47.0",  # For audio metadata
+    "pydub>=0.25.0",  # For audio format conversion
+    "gtts>=2.4.0"  # For Google TTS (online only)
+]
+system-tts = [
+    # These require system installation:
+    # macOS: Built-in 'say' command
+    # Linux: sudo apt-get install espeak espeak-data
+    # Windows: Built-in SAPI voices via pyttsx3
+]
+neural-tts = [
+    # For Piper TTS (requires manual model setup)
+    # Download models from: https://github.com/rhasspy/piper/releases
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
