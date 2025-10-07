@@ -253,11 +253,31 @@ class TTSGenerator:
 
     def generate_conversation_audio(self, episode: PodcastEpisode, script: str) -> str:
         """Generate multi-speaker audio for conversational episodes."""
+
+        # Check if we have sufficient conversation segments
         if not episode.conversation_segments:
             console.print(
                 "[yellow]⚠️  No conversation segments found, using standard generation[/yellow]"
             )
             return self.generate_audio(episode, script)
+
+        # Check if conversation segments are too minimal (less than 100 chars total)
+        total_segment_length = sum(len(seg.text) for seg in episode.conversation_segments)
+        script_length = len(script)
+
+        console.print(f"🔍 Conversation segments: {len(episode.conversation_segments)} segments, {total_segment_length} chars")
+        console.print(f"🔍 Full script length: {script_length} chars")
+
+        # If segments are minimal but script is substantial, convert script to segments
+        if total_segment_length < 100 and script_length > 200:
+            console.print("🔄 Converting full script to conversation segments (segments too minimal)")
+            return self._generate_audio_from_script(script, episode.title)
+
+        # If segments are insufficient compared to script, enhance them
+        if script_length > total_segment_length * 3:
+            console.print("⚠️  Conversation segments seem incomplete compared to full script")
+            console.print("🔄 Using full script content instead of minimal segments")
+            return self._generate_audio_from_script(script, episode.title)
 
         console.print(
             f"🎭 Generating conversation audio with {len(episode.conversation_segments)} segments"
@@ -372,6 +392,209 @@ class TTSGenerator:
             console.print("[yellow]⚠️  Final conversation audio validation failed[/yellow]")
 
         return str(final_audio_path)
+
+    def _generate_audio_from_script(self, script: str, episode_title: str) -> str:
+        """Generate audio from full script text by parsing it into segments."""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        filename = self._sanitize_filename(episode_title)
+        final_audio_path = self.output_dir / f"{filename}.mp3"
+
+        console.print(f"📝 Processing full script ({len(script)} characters)")
+
+        # Parse script into speaker segments
+        segments = self._parse_script_into_segments(script)
+
+        if not segments:
+            console.print("⚠️  Could not parse script into segments, using standard generation")
+            return self.generate_audio_from_text(script, str(final_audio_path))
+
+        console.print(f"✅ Parsed script into {len(segments)} segments")
+
+        # Generate audio for each segment
+        segment_files = []
+        for i, segment in enumerate(segments):
+            console.print(f"🎤 Processing segment {i+1}/{len(segments)}: {segment['speaker']}")
+
+            # Clean up audio cues for TTS
+            text = self._clean_audio_cues(segment['text'])
+            if not text.strip():
+                continue
+
+            # Get voice profile for this speaker
+            voice_profile_name = self.CONVERSATION_VOICES.get(
+                segment['speaker'], "default"
+            )
+            voice_profile = self.VOICE_PROFILES.get(
+                voice_profile_name, self.VOICE_PROFILES["default"]
+            )
+
+            console.print(f"🎭 Speaker '{segment['speaker']}' → Voice '{voice_profile_name}' → Engine '{voice_profile.engine.value}'")
+
+            # Generate segment audio
+            segment_filename = f"{filename}_segment_{i:03d}_{segment['speaker']}.mp3"
+            segment_path = self.output_dir / segment_filename
+
+            try:
+                console.print(f"🎤 Generating audio for: '{text[:50]}...'")
+                self._generate_segment_with_voice(
+                    text, str(segment_path), voice_profile
+                )
+
+                # Verify the segment was created successfully
+                if os.path.exists(str(segment_path)) and os.path.getsize(str(segment_path)) > 0:
+                    segment_files.append(str(segment_path))
+                    console.print(f"✓ Segment {i+1} generated successfully")
+                else:
+                    console.print(f"[yellow]⚠️  Segment {i+1} file was not created or is empty[/yellow]")
+                    continue
+
+                # Add pause after each segment for natural conversation flow
+                if segment['speaker'] in ["alex", "sam"]:
+                    try:
+                        pause_file = self._generate_pause(0.5)  # 0.5 second pause
+                        if pause_file:  # Only add if pause generation succeeded
+                            segment_files.append(pause_file)
+                    except Exception as pause_error:
+                        console.print(f"[yellow]⚠️  Failed to generate pause: {pause_error}[/yellow]")
+
+            except Exception as e:
+                console.print(
+                    f"[yellow]⚠️  Skipping segment {i+1} due to error: {e}[/yellow]"
+                )
+                continue
+
+        if not segment_files:
+            console.print("⚠️  No segments generated from script, using standard generation")
+            return self.generate_audio_from_text(script, str(final_audio_path))
+
+        # Combine all segments into final audio
+        console.print(f"🔗 Combining {len(segment_files)} audio segments...")
+        self._combine_audio_files(segment_files, str(final_audio_path))
+
+        # Clean up temporary segment files
+        console.print(f"🧹 Cleaning up {len(segment_files)} temporary segment files...")
+        for segment_file in segment_files:
+            try:
+                if os.path.exists(segment_file):
+                    # Clean up segment files and related files
+                    if "segment_" in segment_file or "pause_" in segment_file:
+                        os.unlink(segment_file)
+                        console.print(f"✅ Removed: {os.path.basename(segment_file)}")
+
+                    # Also clean up any related WAV files
+                    wav_equivalent = segment_file.replace('.mp3', '.wav')
+                    if os.path.exists(wav_equivalent) and "segment_" in wav_equivalent:
+                        os.unlink(wav_equivalent)
+                        console.print(f"✅ Removed WAV: {os.path.basename(wav_equivalent)}")
+
+                    # Clean up any remaining temporary WAV files in output directory
+                    import glob
+                    remaining_wavs = glob.glob(str(self.output_dir / "*.wav"))
+                    for wav_file in remaining_wavs:
+                        if "temp" in wav_file or "pause" in wav_file:
+                            try:
+                                os.unlink(wav_file)
+                                console.print(f"✅ Cleaned up temp WAV: {os.path.basename(wav_file)}")
+                            except:
+                                pass
+            except Exception as e:
+                console.print(f"[yellow]⚠️  Could not remove {segment_file}: {e}[/yellow]")
+
+        console.print(f"🎵 Script-based audio generated: [green]{final_audio_path}[/green]")
+
+        # Validate the final combined audio
+        if self._validate_audio_file(str(final_audio_path)):
+            console.print("✓ Final script-based audio validation passed")
+        else:
+            console.print("[yellow]⚠️  Final script-based audio validation failed[/yellow]")
+
+        return str(final_audio_path)
+
+    def _parse_script_into_segments(self, script: str) -> List[dict]:
+        """Parse a script text into speaker segments."""
+        segments = []
+        current_speaker = "narrator"
+
+        lines = script.split('\n')
+        current_text = []
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Check for speaker labels (ALEX:, SAM:, NARRATOR:)
+            speaker_match = re.match(r'^(ALEX|SAM|NARRATOR):\s*(.*)', line, re.IGNORECASE)
+            if speaker_match:
+                # Save previous segment if we have content
+                if current_text:
+                    segments.append({
+                        'speaker': current_speaker.lower(),
+                        'text': ' '.join(current_text)
+                    })
+                    current_text = []
+
+                # Start new segment
+                speaker_name = speaker_match.group(1).lower()
+                current_speaker = speaker_name
+                remaining_text = speaker_match.group(2).strip()
+                if remaining_text:
+                    current_text.append(remaining_text)
+            else:
+                # Add to current segment
+                current_text.append(line)
+
+        # Add final segment
+        if current_text:
+            segments.append({
+                'speaker': current_speaker.lower(),
+                'text': ' '.join(current_text)
+            })
+
+        # If no speaker labels found, create segments by splitting content
+        if not segments or len(segments) == 1:
+            console.print("🔄 No speaker labels found, creating alternating Alex/Sam segments")
+            text = script
+            # Remove any existing labels
+            text = re.sub(r'^(ALEX|SAM|NARRATOR):\s*', '', text, flags=re.MULTILINE | re.IGNORECASE)
+
+            # Split into sentences and alternate speakers
+            sentences = re.split(r'(?<=[.!?])\s+', text)
+            segments = []
+            for i, sentence in enumerate(sentences):
+                if sentence.strip():
+                    speaker = "alex" if i % 2 == 0 else "sam"
+                    segments.append({
+                        'speaker': speaker,
+                        'text': sentence.strip()
+                    })
+
+        return segments
+
+    def generate_audio_from_text(self, text: str, output_path: str) -> str:
+        """Generate audio from plain text using the default voice."""
+        try:
+            cleaned_text = self._clean_audio_cues(text)
+            console.print(f"🎤 Generating audio from text ({len(cleaned_text)} characters)")
+
+            # Use the primary engine from voice profile
+            if self.voice_profile.engine == TTSEngine.PIPER:
+                self._generate_with_piper(cleaned_text, output_path)
+            elif self.voice_profile.engine == TTSEngine.ESPEAK:
+                self._generate_with_espeak(cleaned_text, output_path)
+            elif self.voice_profile.engine == TTSEngine.PYTTSX3:
+                self._generate_with_pyttsx3(cleaned_text, output_path)
+            elif self.voice_profile.engine == TTSEngine.GTTS:
+                self._generate_with_gtts(cleaned_text, output_path)
+            elif self.voice_profile.engine == TTSEngine.MACOS_SAY:
+                self._generate_with_say(cleaned_text, output_path)
+            else:
+                self._generate_with_pyttsx3(cleaned_text, output_path)  # fallback
+
+            return output_path
+        except Exception as e:
+            console.print(f"[red]❌ Text-to-audio generation failed: {e}[/red]")
+            raise
 
     def _generate_segment_with_voice(
         self, text: str, output_path: str, voice_profile: VoiceProfile
