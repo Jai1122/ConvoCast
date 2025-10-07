@@ -35,7 +35,7 @@ class TTSGenerator:
                 "com.apple.voice.compact.en-US.Samantha" if os.name == "posix" else None
             ),
             language="en",
-            speed=1.4,
+            speed=0.9,
             pitch=0.8,
         ),
         "narrator_female": VoiceProfile(
@@ -45,21 +45,21 @@ class TTSGenerator:
                 "com.apple.voice.compact.en-US.Alex" if os.name == "posix" else None
             ),
             language="en",
-            speed=1.35,
+            speed=0.85,
             pitch=1.1,
         ),
         "gtts_default": VoiceProfile(
             name="Google TTS Default",
             engine=TTSEngine.GTTS,
             language="en",
-            speed=1.3,
+            speed=0.8,
             pitch=1.0,
         ),
         "gtts_british": VoiceProfile(
             name="Google TTS British",
             engine=TTSEngine.GTTS,
             language="en-uk",
-            speed=1.3,
+            speed=0.8,
             pitch=1.0,
         ),
         "macos_alex": VoiceProfile(
@@ -67,7 +67,7 @@ class TTSGenerator:
             engine=TTSEngine.MACOS_SAY,
             voice_id="Alex",
             language="en",
-            speed=1.4,
+            speed=0.85,
             pitch=1.0,
         ),
         # Piper voices (high quality, fully offline neural TTS)
@@ -76,7 +76,7 @@ class TTSGenerator:
             engine=TTSEngine.PIPER,
             voice_id="en_US-amy-medium",  # Clear female voice
             language="en-US",
-            speed=1.3,
+            speed=0.8,
             pitch=1.0,
         ),
         "piper_male": VoiceProfile(
@@ -84,7 +84,7 @@ class TTSGenerator:
             engine=TTSEngine.PIPER,
             voice_id="en_US-ryan-medium",  # Clear male voice
             language="en-US",
-            speed=1.2,
+            speed=0.75,
             pitch=1.0,
         ),
         # Conversation-specific voices (Platform optimized)
@@ -93,7 +93,7 @@ class TTSGenerator:
             engine=TTSEngine.MACOS_SAY if platform.system() == "Darwin" else TTSEngine.PYTTSX3,
             voice_id="Samantha" if platform.system() == "Darwin" else "female",  # High quality female voice
             language="en-US",
-            speed=1.3,  # Energetic pace
+            speed=0.8,  # Energetic pace
             pitch=1.0,
         ),
         "sam_male": VoiceProfile(
@@ -101,7 +101,7 @@ class TTSGenerator:
             engine=TTSEngine.MACOS_SAY if platform.system() == "Darwin" else TTSEngine.PYTTSX3,
             voice_id="Alex" if platform.system() == "Darwin" else "male",  # High quality male voice
             language="en-US",
-            speed=1.2,   # Thoughtful pace
+            speed=0.75,   # Thoughtful pace
             pitch=1.0,
         ),
         # eSpeak voices (lightweight offline backup)
@@ -110,7 +110,7 @@ class TTSGenerator:
             engine=TTSEngine.ESPEAK,
             voice_id="en+f3",  # Female voice variant 3
             language="en",
-            speed=1.4,
+            speed=0.85,
             pitch=1.1,
         ),
         "espeak_male": VoiceProfile(
@@ -118,7 +118,7 @@ class TTSGenerator:
             engine=TTSEngine.ESPEAK,
             voice_id="en+m3",  # Male voice variant 3
             language="en",
-            speed=1.3,
+            speed=0.8,
             pitch=0.9,
         ),
     }
@@ -332,10 +332,34 @@ class TTSGenerator:
 
         self._combine_audio_files(segment_files, str(final_audio_path))
 
-        # Clean up temporary segment files
+        # Clean up temporary segment files (both MP3 and WAV)
+        console.print(f"🧹 Cleaning up {len(segment_files)} temporary segment files...")
         for segment_file in segment_files:
-            if os.path.exists(segment_file) and "segment_" in segment_file:
-                os.unlink(segment_file)
+            try:
+                if os.path.exists(segment_file):
+                    # Clean up segment files and related files
+                    if "segment_" in segment_file or "pause_" in segment_file:
+                        os.unlink(segment_file)
+                        console.print(f"✅ Removed: {os.path.basename(segment_file)}")
+
+                    # Also clean up any related WAV files
+                    wav_equivalent = segment_file.replace('.mp3', '.wav')
+                    if os.path.exists(wav_equivalent) and "segment_" in wav_equivalent:
+                        os.unlink(wav_equivalent)
+                        console.print(f"✅ Removed WAV: {os.path.basename(wav_equivalent)}")
+
+                    # Clean up any remaining temporary WAV files in output directory
+                    import glob
+                    remaining_wavs = glob.glob(str(self.output_dir / "*.wav"))
+                    for wav_file in remaining_wavs:
+                        if "temp" in wav_file or "pause" in wav_file:
+                            try:
+                                os.unlink(wav_file)
+                                console.print(f"✅ Cleaned up temp WAV: {os.path.basename(wav_file)}")
+                            except:
+                                pass
+            except Exception as e:
+                console.print(f"[yellow]⚠️  Could not remove {segment_file}: {e}[/yellow]")
 
         console.print(
             f"🎵 Conversation audio generated: [green]{final_audio_path}[/green]"
@@ -547,17 +571,12 @@ class TTSGenerator:
                         header = f.read(12)
 
                     if b'FORM' in header and (b'AIFF' in header or b'AIFC' in header):
-                        # AIFF file - create a proper WAV version
-                        wav_output = output_path.replace('.mp3', '.wav')
-                        console.print(f"🎵 Creating WAV version: {wav_output}")
+                        # AIFF file - convert to proper MP3 format only
+                        console.print(f"🔄 Converting AIFF to MP3: {output_path}")
 
-                        # Simple copy but with .wav extension for compatibility
-                        import shutil
-                        shutil.copy2(temp_wav_path, wav_output)
-
-                        # Also create the MP3 version as a copy for backward compatibility
-                        shutil.copy2(temp_wav_path, output_path)
-                        console.print(f"✅ Audio saved as both WAV and MP3 compatible formats")
+                        # Convert AIFF to MP3 using robust conversion
+                        self._convert_to_mp3_robust(temp_wav_path, output_path)
+                        console.print(f"✅ Audio converted from AIFF to MP3")
                     else:
                         # Regular conversion for non-AIFF files
                         self._convert_to_mp3_robust(temp_wav_path, output_path)
@@ -1116,24 +1135,75 @@ class TTSGenerator:
 
         except FileNotFoundError:
             console.print("[yellow]⚠️  ffmpeg not found, using fallback method[/yellow]")
+            console.print("[dim]💡 To install ffmpeg:[/dim]")
+            console.print("[dim]   macOS: brew install ffmpeg[/dim]")
+            console.print("[dim]   Ubuntu/Debian: sudo apt install ffmpeg[/dim]")
+            console.print("[dim]   Windows: choco install ffmpeg[/dim]")
         except Exception as e:
             console.print(f"[yellow]⚠️  ffmpeg concat error: {e}[/yellow]")
 
-        # Fallback: use pygame to combine with better buffering
-        console.print("🔄 Using fallback audio combination method...")
+        # Enhanced Fallback: Try multiple methods for better audio combination
+        console.print("🔄 Using enhanced fallback audio combination methods...")
+
+        # Method 1: Try pydub if available (best fallback)
+        try:
+            from pydub import AudioSegment
+            console.print("🎵 Using pydub for professional audio combination...")
+
+            combined_audio = AudioSegment.empty()
+            for file_path in file_paths:
+                try:
+                    # Auto-detect format and load
+                    audio_segment = AudioSegment.from_file(file_path)
+                    combined_audio += audio_segment
+                    console.print(f"✅ Added {os.path.basename(file_path)} ({len(audio_segment)}ms)")
+                except Exception as e:
+                    console.print(f"[yellow]⚠️  Could not load {file_path}: {e}[/yellow]")
+                    continue
+
+            if len(combined_audio) > 0:
+                # Export with high quality settings
+                combined_audio.export(
+                    output_path,
+                    format="mp3",
+                    bitrate="192k",
+                    parameters=["-ar", "44100", "-ac", "2"]
+                )
+                console.print(f"✅ Successfully combined {len(file_paths)} audio files using pydub")
+                return
+            else:
+                console.print("[yellow]⚠️  No audio content loaded, trying basic method[/yellow]")
+
+        except ImportError:
+            console.print("[dim]⚠️  pydub not available, using basic method[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  pydub combination failed: {e}[/yellow]")
+
+        # Method 2: Basic binary concatenation (last resort)
+        console.print("🔄 Using basic binary concatenation...")
         combined = io.BytesIO()
+        files_combined = 0
+
         for file_path in file_paths:
             try:
-                with open(file_path, "rb") as f:
-                    combined.write(f.read())
+                if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                    with open(file_path, "rb") as f:
+                        data = f.read()
+                        combined.write(data)
+                        files_combined += 1
+                        console.print(f"✅ Added {os.path.basename(file_path)} ({len(data)} bytes)")
+                else:
+                    console.print(f"[yellow]⚠️  Skipping empty/missing file: {file_path}[/yellow]")
             except Exception as e:
                 console.print(f"[yellow]⚠️  Error reading {file_path}: {e}[/yellow]")
                 continue
 
-        with open(output_path, "wb") as f:
-            f.write(combined.getvalue())
-
-        console.print(f"✓ Combined {len(file_paths)} audio files using fallback method")
+        if files_combined > 0:
+            with open(output_path, "wb") as f:
+                f.write(combined.getvalue())
+            console.print(f"✅ Combined {files_combined}/{len(file_paths)} audio files using basic method")
+        else:
+            raise RuntimeError("Failed to combine any audio files using fallback methods")
 
     def _validate_audio_file(self, file_path: str, expected_text: str = "") -> bool:
         """Validate that an audio file is complete and playable."""
