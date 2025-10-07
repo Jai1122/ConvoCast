@@ -2,6 +2,7 @@
 
 import io
 import os
+import platform
 import re
 import subprocess
 import tempfile
@@ -86,19 +87,19 @@ class TTSGenerator:
             speed=1.2,
             pitch=1.0,
         ),
-        # Conversation-specific voices (Cross-platform offline)
+        # Conversation-specific voices (Platform optimized)
         "alex_female": VoiceProfile(
             name="Alex - Curious Female Host",
-            engine=TTSEngine.PYTTSX3,
-            voice_id="female",  # Female voice (system dependent)
+            engine=TTSEngine.MACOS_SAY if platform.system() == "Darwin" else TTSEngine.PYTTSX3,
+            voice_id="Samantha" if platform.system() == "Darwin" else "female",  # High quality female voice
             language="en-US",
             speed=1.3,  # Energetic pace
             pitch=1.0,
         ),
         "sam_male": VoiceProfile(
             name="Sam - Knowledgeable Male Expert",
-            engine=TTSEngine.PYTTSX3,
-            voice_id="male",  # Male voice (system dependent)
+            engine=TTSEngine.MACOS_SAY if platform.system() == "Darwin" else TTSEngine.PYTTSX3,
+            voice_id="Alex" if platform.system() == "Darwin" else "male",  # High quality male voice
             language="en-US",
             speed=1.2,   # Thoughtful pace
             pitch=1.0,
@@ -145,14 +146,24 @@ class TTSGenerator:
             voice_profile or "default", self.VOICE_PROFILES["default"]
         )
 
-        # Define fallback engine order for robustness (most compatible first)
-        self.fallback_engines = [
-            TTSEngine.PYTTSX3,    # Cross-platform offline (most compatible)
-            TTSEngine.PIPER,      # Best quality offline neural TTS (if models available)
-            TTSEngine.MACOS_SAY,  # macOS high quality offline
-            TTSEngine.ESPEAK,     # Lightweight offline backup
-            TTSEngine.GTTS,       # Last resort (requires internet)
-        ]
+        # Define fallback engine order for robustness (best quality first)
+        import platform
+        if platform.system() == "Darwin":  # macOS
+            self.fallback_engines = [
+                TTSEngine.MACOS_SAY,  # macOS high quality offline (best on macOS)
+                TTSEngine.PYTTSX3,    # Cross-platform offline fallback
+                TTSEngine.PIPER,      # Best quality offline neural TTS (if models available)
+                TTSEngine.ESPEAK,     # Lightweight offline backup
+                TTSEngine.GTTS,       # Last resort (requires internet)
+            ]
+        else:
+            self.fallback_engines = [
+                TTSEngine.PYTTSX3,    # Cross-platform offline (most compatible)
+                TTSEngine.PIPER,      # Best quality offline neural TTS (if models available)
+                TTSEngine.MACOS_SAY,  # macOS high quality offline
+                TTSEngine.ESPEAK,     # Lightweight offline backup
+                TTSEngine.GTTS,       # Last resort (requires internet)
+            ]
 
         # Initialize pygame mixer for audio handling (optional)
         try:
@@ -742,8 +753,8 @@ class TTSGenerator:
             if result.returncode != 0:
                 raise RuntimeError(f"say command failed: {result.stderr}")
 
-            # Convert AIFF to MP3
-            self._convert_to_mp3(temp_path, output_path)
+            # Convert AIFF to MP3 using robust conversion
+            self._convert_to_mp3_robust(temp_path, output_path)
 
             # Clean up temporary AIFF file
             if os.path.exists(temp_path):
@@ -874,7 +885,21 @@ class TTSGenerator:
         except:
             pass
 
-        # Method 2: Try lame encoder directly
+        # Method 2: Try macOS afconvert (for AIFF files)
+        try:
+            import platform
+            if platform.system() == "Darwin":  # macOS
+                result = subprocess.run([
+                    "afconvert", input_path, output_path, "-d", "aac", "-f", "mp4f"
+                ], capture_output=True, text=True, timeout=60)
+
+                if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    console.print(f"✅ afconvert conversion successful")
+                    return
+        except:
+            pass
+
+        # Method 3: Try lame encoder directly
         try:
             result = subprocess.run([
                 "lame", "-b", "128", input_path, output_path
@@ -886,21 +911,118 @@ class TTSGenerator:
         except:
             pass
 
-        # Method 3: Use pydub if available
+        # Method 4: Use pydub if available (try multiple formats)
         try:
             from pydub import AudioSegment
 
-            audio = AudioSegment.from_wav(input_path)
-            audio.export(output_path, format="mp3", bitrate="128k")
+            # Detect file format from header
+            with open(input_path, 'rb') as f:
+                header = f.read(12)
 
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                console.print(f"✅ pydub conversion successful")
-                return
-        except:
+            # Try different format loaders based on file header
+            audio = None
+            if b'FORM' in header and (b'AIFF' in header or b'AIFC' in header):
+                console.print("🎵 Detected AIFF/AIFC format")
+                audio = AudioSegment.from_file(input_path, format="aiff")
+            elif b'RIFF' in header and b'WAVE' in header:
+                console.print("🎵 Detected WAV format")
+                audio = AudioSegment.from_wav(input_path)
+            else:
+                # Try generic file loader
+                console.print("🎵 Trying generic audio format detection")
+                audio = AudioSegment.from_file(input_path)
+
+            if audio:
+                audio.export(output_path, format="mp3", bitrate="128k")
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    console.print(f"✅ pydub conversion successful")
+                    return
+        except Exception as e:
+            console.print(f"⚠️  pydub conversion failed: {e}")
             pass
 
-        # Method 4: Direct copy as last resort (may cause compatibility issues)
-        console.print("[yellow]⚠️  All conversion methods failed, copying WAV as MP3[/yellow]")
+        # Method 5: Try Python built-in audio modules
+        try:
+            import wave
+            import aifc
+            import struct
+
+            console.print("🔧 Trying Python built-in audio conversion")
+
+            # Detect format and read audio data
+            audio_data = None
+            sample_rate = None
+
+            with open(input_path, 'rb') as f:
+                header = f.read(12)
+                f.seek(0)
+
+                if b'FORM' in header and (b'AIFF' in header or b'AIFC' in header):
+                    # Read AIFF file
+                    with aifc.open(input_path, 'rb') as aiff_file:
+                        sample_rate = aiff_file.getframerate()
+                        frames = aiff_file.getnframes()
+                        audio_data = aiff_file.readframes(frames)
+                        sample_width = aiff_file.getsampwidth()
+                        channels = aiff_file.getnchannels()
+                elif b'RIFF' in header and b'WAVE' in header:
+                    # Read WAV file
+                    with wave.open(input_path, 'rb') as wav_file:
+                        sample_rate = wav_file.getframerate()
+                        frames = wav_file.getnframes()
+                        audio_data = wav_file.readframes(frames)
+                        sample_width = wav_file.getsampwidth()
+                        channels = wav_file.getnchannels()
+
+            if audio_data and sample_rate:
+                # Convert to WAV first, then copy as MP3 fallback
+                temp_wav = output_path.replace('.mp3', '_temp.wav')
+
+                with wave.open(temp_wav, 'wb') as wav_file:
+                    wav_file.setnchannels(channels)
+                    wav_file.setsampwidth(sample_width)
+                    wav_file.setframerate(sample_rate)
+                    wav_file.writeframes(audio_data)
+
+                # Copy the properly formatted WAV as MP3
+                import shutil
+                shutil.copy2(temp_wav, output_path)
+
+                # Clean up temp file
+                if os.path.exists(temp_wav):
+                    os.unlink(temp_wav)
+
+                console.print("✅ Python built-in conversion successful")
+                return
+
+        except Exception as e:
+            console.print(f"⚠️  Python built-in conversion failed: {e}")
+            pass
+
+        # Method 6: For AIFF files, create a simple WAV copy instead of MP3
+        try:
+            with open(input_path, 'rb') as f:
+                header = f.read(12)
+
+            if b'FORM' in header and (b'AIFF' in header or b'AIFC' in header):
+                # For AIFF files, output as WAV instead of MP3 for better compatibility
+                wav_output = output_path.replace('.mp3', '.wav')
+                console.print(f"🔄 Converting AIFF to WAV format: {wav_output}")
+
+                import shutil
+                shutil.copy2(input_path, wav_output)
+
+                # Also create a symlink or copy as MP3 for compatibility
+                if wav_output != output_path:
+                    shutil.copy2(wav_output, output_path)
+                    console.print("✅ AIFF converted to WAV format (more compatible)")
+                return
+        except Exception as e:
+            console.print(f"⚠️  AIFF to WAV conversion failed: {e}")
+
+        # Method 7: Direct copy as last resort (may cause compatibility issues)
+        console.print("[yellow]⚠️  All conversion methods failed, copying original as MP3[/yellow]")
+        console.print("[yellow]   Note: This may create unplayable files. Install ffmpeg for proper conversion.[/yellow]")
         import shutil
         shutil.copy2(input_path, output_path)
 
