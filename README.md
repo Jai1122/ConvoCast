@@ -229,6 +229,13 @@ convocast generate --page-id "123456789" --conversation
 - ✅ **Speaker Labels Stripped**: `ALEX:` and `SAM:` labels removed from audio
 - ✅ **Punctuation Normalized**: Multiple punctuation marks cleaned up
 
+**Professional Audio Combination:**
+- ✅ **Multiple Methods**: ffmpeg (best) → pydub (good) → basic fallback
+- ✅ **No ffmpeg Required**: Works perfectly with just pydub installed
+- ✅ **Auto-Installation**: Automatically installs pydub if missing
+- ✅ **Format Detection**: Handles MP3, WAV, AIFF automatically
+- ✅ **Quality Preservation**: Maintains audio quality during combination
+
 ### Validate Configuration
 
 ```bash

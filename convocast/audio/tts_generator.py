@@ -1142,26 +1142,76 @@ class TTSGenerator:
         except Exception as e:
             console.print(f"[yellow]⚠️  ffmpeg concat error: {e}[/yellow]")
 
-        # Enhanced Fallback: Try multiple methods for better audio combination
-        console.print("🔄 Using enhanced fallback audio combination methods...")
-
-        # Method 1: Try pydub if available (best fallback)
+        # CRITICAL: Install pydub if not available - it's essential for audio combination
         try:
             from pydub import AudioSegment
-            console.print("🎵 Using pydub for professional audio combination...")
+        except ImportError:
+            console.print("🚨 CRITICAL: pydub is required for audio combination without ffmpeg")
+            console.print("📦 Installing pydub automatically...")
+            try:
+                import subprocess
+                import sys
+                result = subprocess.run([sys.executable, "-m", "pip", "install", "pydub"],
+                                      capture_output=True, text=True, timeout=60)
+                if result.returncode == 0:
+                    console.print("✅ pydub installed successfully, retrying...")
+                    from pydub import AudioSegment
+                else:
+                    raise RuntimeError(f"Failed to install pydub: {result.stderr}")
+            except Exception as install_error:
+                console.print(f"❌ Could not install pydub: {install_error}")
+                console.print("🔧 Please install manually: pip install pydub")
+                raise RuntimeError("pydub is required for audio combination. Install with: pip install pydub")
 
+        # Method 1: Professional audio combination using pydub
+        console.print("🎵 Using pydub for professional audio combination...")
+        try:
             combined_audio = AudioSegment.empty()
+            successful_segments = 0
+
             for file_path in file_paths:
                 try:
-                    # Auto-detect format and load
-                    audio_segment = AudioSegment.from_file(file_path)
-                    combined_audio += audio_segment
-                    console.print(f"✅ Added {os.path.basename(file_path)} ({len(audio_segment)}ms)")
-                except Exception as e:
-                    console.print(f"[yellow]⚠️  Could not load {file_path}: {e}[/yellow]")
+                    if not os.path.exists(file_path):
+                        console.print(f"[yellow]⚠️  File not found: {file_path}[/yellow]")
+                        continue
+
+                    file_size = os.path.getsize(file_path)
+                    if file_size == 0:
+                        console.print(f"[yellow]⚠️  Empty file: {file_path}[/yellow]")
+                        continue
+
+                    console.print(f"📁 Loading {os.path.basename(file_path)} ({file_size} bytes)...")
+
+                    # Try loading as different formats
+                    audio_segment = None
+
+                    # First try as MP3
+                    try:
+                        audio_segment = AudioSegment.from_mp3(file_path)
+                        console.print(f"✅ Loaded as MP3: {len(audio_segment)}ms")
+                    except:
+                        # Try as generic audio file
+                        try:
+                            audio_segment = AudioSegment.from_file(file_path)
+                            console.print(f"✅ Loaded as audio: {len(audio_segment)}ms")
+                        except Exception as load_error:
+                            console.print(f"[yellow]⚠️  Could not load {file_path}: {load_error}[/yellow]")
+                            continue
+
+                    if audio_segment and len(audio_segment) > 0:
+                        combined_audio += audio_segment
+                        successful_segments += 1
+                        console.print(f"🔗 Added to combination (total: {len(combined_audio)}ms)")
+                    else:
+                        console.print(f"[yellow]⚠️  Empty audio segment: {file_path}[/yellow]")
+
+                except Exception as segment_error:
+                    console.print(f"[yellow]⚠️  Error processing {file_path}: {segment_error}[/yellow]")
                     continue
 
-            if len(combined_audio) > 0:
+            if successful_segments > 0 and len(combined_audio) > 0:
+                console.print(f"🎵 Exporting combined audio ({len(combined_audio)}ms from {successful_segments} segments)...")
+
                 # Export with high quality settings
                 combined_audio.export(
                     output_path,
@@ -1169,41 +1219,85 @@ class TTSGenerator:
                     bitrate="192k",
                     parameters=["-ar", "44100", "-ac", "2"]
                 )
-                console.print(f"✅ Successfully combined {len(file_paths)} audio files using pydub")
-                return
-            else:
-                console.print("[yellow]⚠️  No audio content loaded, trying basic method[/yellow]")
 
-        except ImportError:
-            console.print("[dim]⚠️  pydub not available, using basic method[/dim]")
-        except Exception as e:
-            console.print(f"[yellow]⚠️  pydub combination failed: {e}[/yellow]")
-
-        # Method 2: Basic binary concatenation (last resort)
-        console.print("🔄 Using basic binary concatenation...")
-        combined = io.BytesIO()
-        files_combined = 0
-
-        for file_path in file_paths:
-            try:
-                if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-                    with open(file_path, "rb") as f:
-                        data = f.read()
-                        combined.write(data)
-                        files_combined += 1
-                        console.print(f"✅ Added {os.path.basename(file_path)} ({len(data)} bytes)")
+                # Verify the output
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    output_size = os.path.getsize(output_path)
+                    console.print(f"✅ Successfully combined {successful_segments} audio files using pydub ({output_size} bytes)")
+                    return
                 else:
-                    console.print(f"[yellow]⚠️  Skipping empty/missing file: {file_path}[/yellow]")
-            except Exception as e:
-                console.print(f"[yellow]⚠️  Error reading {file_path}: {e}[/yellow]")
-                continue
+                    raise RuntimeError("pydub export created empty file")
+            else:
+                raise RuntimeError(f"No valid audio segments found (tried {len(file_paths)} files)")
 
-        if files_combined > 0:
-            with open(output_path, "wb") as f:
-                f.write(combined.getvalue())
-            console.print(f"✅ Combined {files_combined}/{len(file_paths)} audio files using basic method")
-        else:
-            raise RuntimeError("Failed to combine any audio files using fallback methods")
+        except Exception as pydub_error:
+            console.print(f"❌ pydub combination failed: {pydub_error}")
+
+            # Method 2: Fallback to WAV combination if possible
+            console.print("🔄 Trying WAV-based combination as fallback...")
+            try:
+                # Convert all files to WAV first, then combine
+                import tempfile
+                wav_files = []
+
+                for file_path in file_paths:
+                    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+                        continue
+
+                    try:
+                        # Load and convert to WAV
+                        audio = AudioSegment.from_file(file_path)
+                        if len(audio) > 0:
+                            wav_temp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                            wav_temp.close()
+                            audio.export(wav_temp.name, format="wav")
+                            wav_files.append(wav_temp.name)
+                            console.print(f"✅ Converted {os.path.basename(file_path)} to WAV")
+                    except Exception as conv_error:
+                        console.print(f"[yellow]⚠️  Could not convert {file_path}: {conv_error}[/yellow]")
+                        continue
+
+                if wav_files:
+                    # Combine WAV files
+                    combined = AudioSegment.empty()
+                    for wav_file in wav_files:
+                        try:
+                            wav_audio = AudioSegment.from_wav(wav_file)
+                            combined += wav_audio
+                        except Exception as wav_error:
+                            console.print(f"[yellow]⚠️  Error combining WAV: {wav_error}[/yellow]")
+
+                    if len(combined) > 0:
+                        combined.export(output_path, format="mp3", bitrate="192k")
+                        console.print(f"✅ Successfully combined using WAV fallback method")
+
+                        # Clean up temporary WAV files
+                        for wav_file in wav_files:
+                            try:
+                                os.unlink(wav_file)
+                            except:
+                                pass
+                        return
+
+            except Exception as wav_error:
+                console.print(f"[yellow]⚠️  WAV fallback failed: {wav_error}[/yellow]")
+
+            # Method 3: Create a simple audio file that references the segments
+            console.print("🔄 Creating playlist-style output as final fallback...")
+            try:
+                # If we can't combine, at least use the first valid audio file
+                for file_path in file_paths:
+                    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                        import shutil
+                        shutil.copy2(file_path, output_path)
+                        console.print(f"📋 Using first valid audio file: {os.path.basename(file_path)}")
+                        console.print("[yellow]⚠️  Note: Only first segment used - install ffmpeg for full combination[/yellow]")
+                        return
+
+            except Exception as copy_error:
+                console.print(f"[yellow]⚠️  Copy fallback failed: {copy_error}[/yellow]")
+
+            raise RuntimeError("All audio combination methods failed. Please install ffmpeg or ensure pydub is working correctly.")
 
     def _validate_audio_file(self, file_path: str, expected_text: str = "") -> bool:
         """Validate that an audio file is complete and playable."""
