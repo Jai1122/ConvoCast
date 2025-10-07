@@ -230,11 +230,11 @@ convocast generate --page-id "123456789" --conversation
 - ✅ **Punctuation Normalized**: Multiple punctuation marks cleaned up
 
 **Professional Audio Combination:**
-- ✅ **Multiple Methods**: ffmpeg (best) → pydub (good) → basic fallback
-- ✅ **No ffmpeg Required**: Works perfectly with just pydub installed
+- ✅ **WAV Format**: High-quality uncompressed audio, no ffmpeg required
+- ✅ **Pure Python**: Uses pydub for reliable audio combination
 - ✅ **Auto-Installation**: Automatically installs pydub if missing
-- ✅ **Format Detection**: Handles MP3, WAV, AIFF automatically
-- ✅ **Quality Preservation**: Maintains audio quality during combination
+- ✅ **Format Detection**: Handles WAV, AIFF conversion automatically
+- ✅ **Zero External Dependencies**: No ffmpeg, lame, or other tools needed
 
 ### Validate Configuration
 
@@ -246,7 +246,7 @@ convocast validate
 
 ConvoCast generates:
 
-- **Audio Files**: High-quality `.mp3` podcast episodes with multi-speaker support
+- **Audio Files**: High-quality `.wav` podcast episodes with multi-speaker support
 - **Text Scripts**: Clean, formatted conversation or Q&A content
 - **Conversation Segments**: Individual audio files for each speaker (when using conversation mode)
 - **Summary**: JSON file with episode metadata and speaker information
@@ -255,12 +255,12 @@ ConvoCast generates:
 
 ```
 output/
-├── episode-name.mp3              # Final combined audio
+├── episode-name.wav              # Final combined audio
 ├── episode-name.txt              # Clean text script
 ├── episode-name-summary.json     # Episode metadata
 └── segments/                     # Individual speaker segments (conversation mode)
-    ├── episode-name_001_alex.mp3
-    ├── episode-name_002_sam.mp3
+    ├── episode-name_001_alex.wav
+    ├── episode-name_002_sam.wav
     └── ...
 ```
 

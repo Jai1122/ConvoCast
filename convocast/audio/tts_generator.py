@@ -188,7 +188,7 @@ class TTSGenerator:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         filename = self._sanitize_filename(episode.title)
-        audio_path = self.output_dir / f"{filename}.mp3"
+        audio_path = self.output_dir / f"{filename}.wav"
         script_path = self.output_dir / f"{filename}.txt"
 
         # Save script file
@@ -309,7 +309,7 @@ class TTSGenerator:
             console.print(f"🎭 Speaker '{segment.speaker}' → Voice '{voice_profile_name}' → Engine '{voice_profile.engine.value}'")
 
             # Generate segment audio
-            segment_filename = f"{filename}_segment_{i:03d}_{segment.speaker}.mp3"
+            segment_filename = f"{filename}_segment_{i:03d}_{segment.speaker}.wav"
             segment_path = self.output_dir / segment_filename
 
             try:
@@ -347,7 +347,7 @@ class TTSGenerator:
             raise RuntimeError("No audio segments were generated successfully")
 
         # Combine all segments into final audio
-        final_audio_path = self.output_dir / f"{filename}.mp3"
+        final_audio_path = self.output_dir / f"{filename}.wav"
         console.print(f"🔗 Combining {len(segment_files)} audio segments...")
 
         self._combine_audio_files(segment_files, str(final_audio_path))
@@ -397,7 +397,7 @@ class TTSGenerator:
         """Generate audio from full script text by parsing it into segments."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
         filename = self._sanitize_filename(episode_title)
-        final_audio_path = self.output_dir / f"{filename}.mp3"
+        final_audio_path = self.output_dir / f"{filename}.wav"
 
         console.print(f"📝 Processing full script ({len(script)} characters)")
 
@@ -431,7 +431,7 @@ class TTSGenerator:
             console.print(f"🎭 Speaker '{segment['speaker']}' → Voice '{voice_profile_name}' → Engine '{voice_profile.engine.value}'")
 
             # Generate segment audio
-            segment_filename = f"{filename}_segment_{i:03d}_{segment['speaker']}.mp3"
+            segment_filename = f"{filename}_segment_{i:03d}_{segment['speaker']}.wav"
             segment_path = self.output_dir / segment_filename
 
             try:
@@ -675,7 +675,7 @@ class TTSGenerator:
         try:
             # Simple approach: create a very quiet audio file
             pause_text = " "  # Single space creates minimal audio
-            pause_filename = f"pause_{duration_seconds:.1f}s.mp3"
+            pause_filename = f"pause_{duration_seconds:.1f}s.wav"
             pause_path = self.output_dir / pause_filename
 
             # Generate very short, quiet audio using default engine
@@ -720,11 +720,8 @@ class TTSGenerator:
                 new_volume = min(1.0, volume * 1.1)
                 engine.setProperty("volume", new_volume)
 
-            # Use WAV format for reliability (will convert to MP3 later if needed)
-            if output_path.endswith(".mp3"):
-                temp_wav_path = output_path.replace(".mp3", ".wav")
-            else:
-                temp_wav_path = output_path
+            # Output directly to WAV format (no conversion needed)
+            temp_wav_path = output_path
 
             # Ensure directory exists
             os.makedirs(os.path.dirname(temp_wav_path), exist_ok=True)
@@ -784,29 +781,18 @@ class TTSGenerator:
 
             console.print(f"✓ WAV file created: {file_size} bytes")
 
-            # For better compatibility, output WAV files instead of MP3
-            if output_path.endswith(".mp3") and temp_wav_path != output_path:
-                console.print(f"🔄 Converting to playable format...")
+            # Check if pyttsx3 generated AIFF and convert to proper WAV
+            if os.path.exists(temp_wav_path):
+                with open(temp_wav_path, 'rb') as f:
+                    header = f.read(12)
 
-                # Check if it's AIFF and convert to proper WAV
-                if os.path.exists(temp_wav_path):
-                    with open(temp_wav_path, 'rb') as f:
-                        header = f.read(12)
-
-                    if b'FORM' in header and (b'AIFF' in header or b'AIFC' in header):
-                        # AIFF file - convert to proper MP3 format only
-                        console.print(f"🔄 Converting AIFF to MP3: {output_path}")
-
-                        # Convert AIFF to MP3 using robust conversion
-                        self._convert_to_mp3_robust(temp_wav_path, output_path)
-                        console.print(f"✅ Audio converted from AIFF to MP3")
-                    else:
-                        # Regular conversion for non-AIFF files
-                        self._convert_to_mp3_robust(temp_wav_path, output_path)
-
-                # Clean up temporary file
-                if os.path.exists(temp_wav_path) and temp_wav_path != output_path.replace('.mp3', '.wav'):
-                    os.unlink(temp_wav_path)
+                if b'FORM' in header and (b'AIFF' in header or b'AIFC' in header):
+                    console.print("🔄 Converting AIFF to WAV format")
+                    # Convert AIFF to proper WAV using built-in Python modules
+                    self._convert_aiff_to_wav(temp_wav_path, output_path)
+                    console.print("✅ Audio converted from AIFF to WAV")
+                else:
+                    console.print("✅ Audio generated in proper WAV format")
 
         except ImportError:
             raise RuntimeError(
@@ -814,6 +800,39 @@ class TTSGenerator:
             )
         except Exception as e:
             raise RuntimeError(f"pyttsx3 generation failed: {e}")
+
+    def _convert_aiff_to_wav(self, input_path: str, output_path: str) -> None:
+        """Convert AIFF file to WAV using Python built-in modules."""
+        try:
+            import aifc
+            import wave
+
+            # Read AIFF file
+            with aifc.open(input_path, 'rb') as aiff_file:
+                frames = aiff_file.readframes(aiff_file.getnframes())
+                sample_rate = aiff_file.getframerate()
+                channels = aiff_file.getnchannels()
+                sample_width = aiff_file.getsampwidth()
+
+            # Write as WAV
+            with wave.open(output_path, 'wb') as wav_file:
+                wav_file.setnchannels(channels)
+                wav_file.setsampwidth(sample_width)
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(frames)
+
+            # Remove original AIFF file if different from output
+            if input_path != output_path and os.path.exists(input_path):
+                os.unlink(input_path)
+
+            console.print(f"✅ AIFF successfully converted to WAV: {os.path.getsize(output_path)} bytes")
+
+        except Exception as e:
+            console.print(f"⚠️  AIFF to WAV conversion failed: {e}")
+            # If conversion fails, try to copy as-is (may still work)
+            if input_path != output_path:
+                import shutil
+                shutil.copy2(input_path, output_path)
 
     def _generate_with_espeak(self, text: str, output_path: str) -> None:
         """Generate audio using eSpeak (lightweight, fully offline)."""
@@ -825,11 +844,8 @@ class TTSGenerator:
             # Get voice setting
             voice = self.voice_profile.voice_id or "en"
 
-            # Prepare output path - eSpeak can output WAV directly
-            if output_path.endswith('.mp3'):
-                temp_wav = output_path.replace('.mp3', '.wav')
-            else:
-                temp_wav = output_path
+            # eSpeak outputs WAV directly - no conversion needed
+            temp_wav = output_path
 
             console.print(f"🎤 eSpeak: voice={voice}, speed={speed_wpm}wpm")
 
@@ -857,12 +873,7 @@ class TTSGenerator:
             if not os.path.exists(temp_wav) or os.path.getsize(temp_wav) == 0:
                 raise RuntimeError(f"eSpeak failed to create audio file: {temp_wav}")
 
-            # Convert to MP3 if needed
-            if output_path.endswith('.mp3') and temp_wav != output_path:
-                self._convert_to_mp3(temp_wav, output_path)
-                if os.path.exists(temp_wav):
-                    os.unlink(temp_wav)
-
+            # File is already in WAV format - no conversion needed
             file_size = os.path.getsize(output_path)
             console.print(f"✓ eSpeak generated: {file_size} bytes")
 
@@ -1369,7 +1380,7 @@ class TTSGenerator:
         try:
             from pydub import AudioSegment
         except ImportError:
-            console.print("🚨 CRITICAL: pydub is required for audio combination without ffmpeg")
+            console.print("🚨 CRITICAL: pydub is required for WAV audio combination")
             console.print("📦 Installing pydub automatically...")
             try:
                 import subprocess
@@ -1435,18 +1446,16 @@ class TTSGenerator:
             if successful_segments > 0 and len(combined_audio) > 0:
                 console.print(f"🎵 Exporting combined audio ({len(combined_audio)}ms from {successful_segments} segments)...")
 
-                # Export with high quality settings
+                # Export as high quality WAV (no compression, no external dependencies)
                 combined_audio.export(
                     output_path,
-                    format="mp3",
-                    bitrate="192k",
-                    parameters=["-ar", "44100", "-ac", "2"]
+                    format="wav"
                 )
 
                 # Verify the output
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                     output_size = os.path.getsize(output_path)
-                    console.print(f"✅ Successfully combined {successful_segments} audio files using pydub ({output_size} bytes)")
+                    console.print(f"✅ Successfully combined {successful_segments} audio files using pydub WAV format ({output_size} bytes)")
                     return
                 else:
                     raise RuntimeError("pydub export created empty file")
@@ -1491,7 +1500,7 @@ class TTSGenerator:
                             console.print(f"[yellow]⚠️  Error combining WAV: {wav_error}[/yellow]")
 
                     if len(combined) > 0:
-                        combined.export(output_path, format="mp3", bitrate="192k")
+                        combined.export(output_path, format="wav")
                         console.print(f"✅ Successfully combined using WAV fallback method")
 
                         # Clean up temporary WAV files
