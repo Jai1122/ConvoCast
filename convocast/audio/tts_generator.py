@@ -86,19 +86,19 @@ class TTSGenerator:
             speed=1.2,
             pitch=1.0,
         ),
-        # Conversation-specific voices (Offline neural TTS)
+        # Conversation-specific voices (Cross-platform offline)
         "alex_female": VoiceProfile(
             name="Alex - Curious Female Host",
-            engine=TTSEngine.PIPER,
-            voice_id="en_US-amy-medium",  # Friendly female voice
+            engine=TTSEngine.PYTTSX3,
+            voice_id="female",  # Female voice (system dependent)
             language="en-US",
             speed=1.3,  # Energetic pace
             pitch=1.0,
         ),
         "sam_male": VoiceProfile(
             name="Sam - Knowledgeable Male Expert",
-            engine=TTSEngine.PIPER,
-            voice_id="en_US-ryan-medium",  # Professional male voice
+            engine=TTSEngine.PYTTSX3,
+            voice_id="male",  # Male voice (system dependent)
             language="en-US",
             speed=1.2,   # Thoughtful pace
             pitch=1.0,
@@ -145,10 +145,10 @@ class TTSGenerator:
             voice_profile or "default", self.VOICE_PROFILES["default"]
         )
 
-        # Define fallback engine order for robustness (fully offline first)
+        # Define fallback engine order for robustness (most compatible first)
         self.fallback_engines = [
-            TTSEngine.PIPER,      # Best quality offline neural TTS
-            TTSEngine.PYTTSX3,    # Cross-platform offline
+            TTSEngine.PYTTSX3,    # Cross-platform offline (most compatible)
+            TTSEngine.PIPER,      # Best quality offline neural TTS (if models available)
             TTSEngine.MACOS_SAY,  # macOS high quality offline
             TTSEngine.ESPEAK,     # Lightweight offline backup
             TTSEngine.GTTS,       # Last resort (requires internet)
@@ -680,13 +680,10 @@ class TTSGenerator:
         model_file = models_dir / f"{voice_model}.onnx"
         config_file = models_dir / f"{voice_model}.onnx.json"
 
-        console.print(f"[yellow]⚠️  Piper models not found locally[/yellow]")
-        console.print(f"[yellow]To use Piper TTS offline:[/yellow]")
-        console.print(f"[yellow]1. Download {voice_model}.onnx and {voice_model}.onnx.json[/yellow]")
-        console.print(f"[yellow]2. Place them in: {models_dir}[/yellow]")
-        console.print(f"[yellow]3. Install Piper: pip install piper-tts[/yellow]")
+        console.print(f"[dim]⚠️  Piper models not found - falling back to next TTS engine[/dim]")
+        console.print(f"[dim]To enable Piper: Download models from https://github.com/rhasspy/piper/releases[/dim]")
 
-        raise RuntimeError(f"Piper models not found. Manual setup required for offline operation.")
+        raise ImportError(f"Piper models not available - will fallback to other TTS engines")
 
     def _generate_with_gtts(self, text: str, output_path: str) -> None:
         """Generate audio using Google Text-to-Speech."""

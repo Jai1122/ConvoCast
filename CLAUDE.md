@@ -11,9 +11,10 @@ ConvoCast is a Python application that converts Confluence pages into onboarding
 ### ✅ **STABLE COMPONENTS**
 - **Core Architecture**: All modules import and function correctly
 - **Conversation Generation**: Alex/Sam voice switching works reliably
-- **Multiple TTS Engines**: Fallback system ensures audio generation succeeds
+- **Multiple TTS Engines**: Robust fallback system (pyttsx3 → Piper → macOS → eSpeak → gTTS)
 - **Offline Operation**: No external API dependencies for TTS
 - **Data Pipeline**: Content processing → Q&A generation → Audio output
+- **Error Handling**: Graceful fallback when Piper models unavailable
 
 ### ⚠️  **SETUP REQUIREMENTS**
 - **Dependencies**: Run `python test_setup.py` to verify installation
@@ -158,10 +159,25 @@ sudo apt-get install espeak  # Linux lightweight
 brew install espeak  # macOS alternative
 
 # Check engine priority in fallback order:
-# 1. piper (if models available)
-# 2. pyttsx3 (most compatible)
+# 1. pyttsx3 (most compatible)
+# 2. piper (if models available)
 # 3. macos_say (macOS only)
 # 4. espeak (Linux/basic)
+```
+
+#### **"Piper models not found" (Fixed - Now Falls Back Gracefully)**
+```bash
+# This is now handled automatically - system falls back to pyttsx3
+# To enable Piper TTS (optional):
+# 1. Download models from: https://github.com/rhasspy/piper/releases
+# 2. Place .onnx and .onnx.json files in: ./piper_models/
+# 3. Install Piper: pip install piper-tts
+
+# Expected fallback behavior:
+🎤 Trying piper engine...
+⚠️  Piper models not found - falling back to next TTS engine
+🎤 Trying pyttsx3 engine...
+✅ Audio generated successfully with pyttsx3
 ```
 
 #### **"Import errors"**
