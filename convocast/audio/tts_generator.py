@@ -817,8 +817,59 @@ class TTSGenerator:
             raise RuntimeError(f"pyttsx3 generation failed: {e}")
 
     def _convert_aiff_to_wav(self, input_path: str, output_path: str) -> None:
-        """Convert AIFF file to WAV using Python built-in modules."""
+        """Convert AIFF file to WAV using multiple fallback methods."""
+
+        # Method 1: Try ffmpeg (most reliable for all AIFF variants)
         try:
+            console.print("🔄 Trying ffmpeg for AIFF to WAV conversion...")
+            result = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-i", input_path,
+                    "-acodec", "pcm_s16le",  # Standard WAV codec
+                    "-ar", "44100",
+                    "-ac", "2",
+                    "-y",
+                    output_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                console.print(f"✅ AIFF successfully converted to WAV with ffmpeg: {os.path.getsize(output_path)} bytes")
+                # Remove original AIFF file if different from output
+                if input_path != output_path and os.path.exists(input_path):
+                    os.unlink(input_path)
+                return
+        except FileNotFoundError:
+            console.print("[yellow]⚠️  ffmpeg not found, trying alternative methods[/yellow]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  ffmpeg conversion failed: {e}[/yellow]")
+
+        # Method 2: Try pydub (handles various formats)
+        try:
+            console.print("🔄 Trying pydub for AIFF to WAV conversion...")
+            from pydub import AudioSegment
+
+            audio = AudioSegment.from_file(input_path, format="aiff")
+            audio.export(output_path, format="wav")
+
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                console.print(f"✅ AIFF successfully converted to WAV with pydub: {os.path.getsize(output_path)} bytes")
+                # Remove original AIFF file if different from output
+                if input_path != output_path and os.path.exists(input_path):
+                    os.unlink(input_path)
+                return
+        except ImportError:
+            console.print("[yellow]⚠️  pydub not available, trying built-in modules[/yellow]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  pydub conversion failed: {e}[/yellow]")
+
+        # Method 3: Try Python built-in aifc module (limited support)
+        try:
+            console.print("🔄 Trying Python aifc for AIFF to WAV conversion...")
             import aifc
             import wave
 
@@ -836,18 +887,23 @@ class TTSGenerator:
                 wav_file.setframerate(sample_rate)
                 wav_file.writeframes(frames)
 
-            # Remove original AIFF file if different from output
-            if input_path != output_path and os.path.exists(input_path):
-                os.unlink(input_path)
-
-            console.print(f"✅ AIFF successfully converted to WAV: {os.path.getsize(output_path)} bytes")
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                console.print(f"✅ AIFF successfully converted to WAV with aifc: {os.path.getsize(output_path)} bytes")
+                # Remove original AIFF file if different from output
+                if input_path != output_path and os.path.exists(input_path):
+                    os.unlink(input_path)
+                return
 
         except Exception as e:
-            console.print(f"⚠️  AIFF to WAV conversion failed: {e}")
-            # If conversion fails, try to copy as-is (may still work)
-            if input_path != output_path:
-                import shutil
-                shutil.copy2(input_path, output_path)
+            console.print(f"[yellow]⚠️  Python aifc conversion failed: {e}[/yellow]")
+
+        # Method 4: Last resort - copy as-is and rename (may work for some players)
+        console.print("[yellow]⚠️  All conversion methods failed, copying AIFF as WAV[/yellow]")
+        if input_path != output_path:
+            import shutil
+            shutil.copy2(input_path, output_path)
+            console.print(f"📋 Copied AIFF to WAV location: {output_path}")
+            console.print("[yellow]   Note: File may not be playable. Install ffmpeg for proper conversion.[/yellow]")
 
     def _generate_with_espeak(self, text: str, output_path: str) -> None:
         """Generate audio using eSpeak (lightweight, fully offline)."""
@@ -1438,7 +1494,6 @@ class TTSGenerator:
             console.print("🚨 CRITICAL: pydub is required for WAV audio combination")
             console.print("📦 Installing pydub automatically...")
             try:
-                import subprocess
                 import sys
                 result = subprocess.run([sys.executable, "-m", "pip", "install", "pydub"],
                                       capture_output=True, text=True, timeout=60)
