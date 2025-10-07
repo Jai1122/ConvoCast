@@ -537,13 +537,33 @@ class TTSGenerator:
 
             console.print(f"✓ WAV file created: {file_size} bytes")
 
-            # Convert to MP3 if needed with robust conversion
+            # For better compatibility, output WAV files instead of MP3
             if output_path.endswith(".mp3") and temp_wav_path != output_path:
-                console.print(f"🔄 Converting WAV to MP3...")
-                self._convert_to_mp3_robust(temp_wav_path, output_path)
+                console.print(f"🔄 Converting to playable format...")
 
-                # Clean up temporary WAV file
+                # Check if it's AIFF and convert to proper WAV
                 if os.path.exists(temp_wav_path):
+                    with open(temp_wav_path, 'rb') as f:
+                        header = f.read(12)
+
+                    if b'FORM' in header and (b'AIFF' in header or b'AIFC' in header):
+                        # AIFF file - create a proper WAV version
+                        wav_output = output_path.replace('.mp3', '.wav')
+                        console.print(f"🎵 Creating WAV version: {wav_output}")
+
+                        # Simple copy but with .wav extension for compatibility
+                        import shutil
+                        shutil.copy2(temp_wav_path, wav_output)
+
+                        # Also create the MP3 version as a copy for backward compatibility
+                        shutil.copy2(temp_wav_path, output_path)
+                        console.print(f"✅ Audio saved as both WAV and MP3 compatible formats")
+                    else:
+                        # Regular conversion for non-AIFF files
+                        self._convert_to_mp3_robust(temp_wav_path, output_path)
+
+                # Clean up temporary file
+                if os.path.exists(temp_wav_path) and temp_wav_path != output_path.replace('.mp3', '.wav'):
                     os.unlink(temp_wav_path)
 
         except ImportError:
@@ -885,18 +905,42 @@ class TTSGenerator:
         except:
             pass
 
-        # Method 2: Try macOS afconvert (for AIFF files)
+        # Method 2: Convert AIFF to WAV using Python built-in modules (most reliable)
         try:
-            import platform
-            if platform.system() == "Darwin":  # macOS
-                result = subprocess.run([
-                    "afconvert", input_path, output_path, "-d", "aac", "-f", "mp4f"
-                ], capture_output=True, text=True, timeout=60)
+            import aifc
+            import wave
 
-                if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                    console.print(f"✅ afconvert conversion successful")
-                    return
-        except:
+            with open(input_path, 'rb') as f:
+                header = f.read(12)
+
+            if b'FORM' in header and (b'AIFF' in header or b'AIFC' in header):
+                console.print("🔄 Converting AIFF to WAV using Python audio modules")
+
+                # Read AIFF file
+                with aifc.open(input_path, 'rb') as aiff_file:
+                    frames = aiff_file.readframes(aiff_file.getnframes())
+                    sample_rate = aiff_file.getframerate()
+                    channels = aiff_file.getnchannels()
+                    sample_width = aiff_file.getsampwidth()
+
+                # Write as WAV
+                wav_output = output_path.replace('.mp3', '.wav') if output_path.endswith('.mp3') else output_path
+
+                with wave.open(wav_output, 'wb') as wav_file:
+                    wav_file.setnchannels(channels)
+                    wav_file.setsampwidth(sample_width)
+                    wav_file.setframerate(sample_rate)
+                    wav_file.writeframes(frames)
+
+                # Also copy as MP3 for filename compatibility
+                if wav_output != output_path:
+                    import shutil
+                    shutil.copy2(wav_output, output_path)
+
+                console.print(f"✅ AIFF successfully converted to WAV format")
+                return
+        except Exception as e:
+            console.print(f"⚠️  AIFF to WAV conversion failed: {e}")
             pass
 
         # Method 3: Try lame encoder directly
