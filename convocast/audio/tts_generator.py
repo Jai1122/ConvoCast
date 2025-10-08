@@ -188,20 +188,21 @@ class TTSGenerator:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         filename = self._sanitize_filename(episode.title)
-        audio_path = self.output_dir / f"{filename}.wav"
+        audio_path = self.output_dir / f"{filename}.mp3"
         script_path = self.output_dir / f"{filename}.txt"
 
         # Save script file
         script_path.write_text(script, encoding="utf-8")
 
         try:
-            # Clean the script before TTS generation to remove asterisks and formatting
+            # Clean the script for TTS (remove audio cues but keep content)
             cleaned_script = self._clean_audio_cues(script)
-            console.print(f"🧹 Cleaned script: {len(script)} → {len(cleaned_script)} characters")
+            console.print(f"🧹 Cleaned script for TTS: {len(script)} → {len(cleaned_script)} characters")
 
             # Try generating with primary engine, then fallbacks
             audio_generated = False
             last_error = None
+            temp_audio_path = str(audio_path).replace('.mp3', '_temp.wav')
 
             # List of engines to try (primary first, then fallbacks)
             engines_to_try = [self.voice_profile.engine] + [
@@ -214,26 +215,26 @@ class TTSGenerator:
                     console.print(f"🎤 Trying {engine_attempt.value} engine...")
 
                     if engine_attempt == TTSEngine.PIPER:
-                        self._generate_with_piper(cleaned_script, str(audio_path))
+                        self._generate_with_piper(cleaned_script, temp_audio_path)
                     elif engine_attempt == TTSEngine.ESPEAK:
-                        self._generate_with_espeak(cleaned_script, str(audio_path))
+                        self._generate_with_espeak(cleaned_script, temp_audio_path)
                     elif engine_attempt == TTSEngine.PYTTSX3:
-                        self._generate_with_pyttsx3(cleaned_script, str(audio_path))
+                        self._generate_with_pyttsx3(cleaned_script, temp_audio_path)
                     elif engine_attempt == TTSEngine.GTTS:
-                        self._generate_with_gtts(cleaned_script, str(audio_path))
+                        self._generate_with_gtts(cleaned_script, temp_audio_path)
                     elif engine_attempt == TTSEngine.MACOS_SAY:
                         try:
-                            self._generate_with_say(cleaned_script, str(audio_path))
+                            self._generate_with_say(cleaned_script, temp_audio_path)
                         except RuntimeError as say_error:
                             console.print(f"[yellow]⚠️  macOS say failed: {say_error}[/yellow]")
                             console.print("[yellow]    Falling back to pyttsx3...[/yellow]")
                             # Fallback to pyttsx3 if say fails
-                            self._generate_with_pyttsx3(cleaned_script, str(audio_path))
+                            self._generate_with_pyttsx3(cleaned_script, temp_audio_path)
                     else:
                         continue  # Skip unsupported engines
 
                     # Validate the generated audio
-                    if self._validate_audio_file(str(audio_path), cleaned_script):
+                    if self._validate_audio_file(temp_audio_path, cleaned_script):
                         console.print(f"✅ Audio generated successfully with {engine_attempt.value}")
                         audio_generated = True
                         break
@@ -248,6 +249,14 @@ class TTSGenerator:
 
             if not audio_generated:
                 raise RuntimeError(f"All TTS engines failed. Last error: {last_error}")
+
+            # Convert to MP3 using ffmpeg
+            console.print("🔄 Converting to MP3 format...")
+            self._convert_to_mp3(temp_audio_path, str(audio_path))
+
+            # Clean up temporary WAV file
+            if os.path.exists(temp_audio_path):
+                os.unlink(temp_audio_path)
 
             console.print(f"🎵 Audio generated: [green]{audio_path}[/green]")
             return str(audio_path)
@@ -299,8 +308,8 @@ class TTSGenerator:
                 f"🎤 Processing segment {i+1}/{len(episode.conversation_segments)}: {segment.speaker}"
             )
 
-            # Clean up audio cues for TTS
-            text = self._clean_audio_cues(segment.text)
+            # Clean up audio cues and speaker labels for TTS
+            text = self._clean_segment_text(segment.text)
             if not text.strip():
                 continue
 
@@ -352,11 +361,20 @@ class TTSGenerator:
         if not segment_files:
             raise RuntimeError("No audio segments were generated successfully")
 
-        # Combine all segments into final audio
-        final_audio_path = self.output_dir / f"{filename}.wav"
+        # Combine all segments into final audio (WAV first, then convert to MP3)
+        temp_combined_path = self.output_dir / f"{filename}_combined.wav"
+        final_audio_path = self.output_dir / f"{filename}.mp3"
         console.print(f"🔗 Combining {len(segment_files)} audio segments...")
 
-        self._combine_audio_files(segment_files, str(final_audio_path))
+        self._combine_audio_files(segment_files, str(temp_combined_path))
+
+        # Convert combined WAV to MP3
+        console.print("🔄 Converting combined audio to MP3...")
+        self._convert_to_mp3(str(temp_combined_path), str(final_audio_path))
+
+        # Clean up temporary combined WAV file
+        if os.path.exists(str(temp_combined_path)):
+            os.unlink(str(temp_combined_path))
 
         # Clean up temporary segment files (both MP3 and WAV)
         console.print(f"🧹 Cleaning up {len(segment_files)} temporary segment files...")
@@ -403,7 +421,8 @@ class TTSGenerator:
         """Generate audio from full script text by parsing it into segments."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
         filename = self._sanitize_filename(episode_title)
-        final_audio_path = self.output_dir / f"{filename}.wav"
+        temp_combined_path = self.output_dir / f"{filename}_combined.wav"
+        final_audio_path = self.output_dir / f"{filename}.mp3"
 
         console.print(f"📝 Processing full script ({len(script)} characters)")
 
@@ -412,7 +431,12 @@ class TTSGenerator:
 
         if not segments:
             console.print("⚠️  Could not parse script into segments, using standard generation")
-            return self.generate_audio_from_text(script, str(final_audio_path))
+            temp_audio = str(final_audio_path).replace('.mp3', '_temp.wav')
+            self.generate_audio_from_text(script, temp_audio)
+            self._convert_to_mp3(temp_audio, str(final_audio_path))
+            if os.path.exists(temp_audio):
+                os.unlink(temp_audio)
+            return str(final_audio_path)
 
         console.print(f"✅ Parsed script into {len(segments)} segments")
 
@@ -421,8 +445,8 @@ class TTSGenerator:
         for i, segment in enumerate(segments):
             console.print(f"🎤 Processing segment {i+1}/{len(segments)}: {segment['speaker']}")
 
-            # Clean up audio cues for TTS
-            text = self._clean_audio_cues(segment['text'])
+            # Clean up audio cues and speaker labels for TTS
+            text = self._clean_segment_text(segment['text'])
             if not text.strip():
                 continue
 
@@ -471,11 +495,24 @@ class TTSGenerator:
 
         if not segment_files:
             console.print("⚠️  No segments generated from script, using standard generation")
-            return self.generate_audio_from_text(script, str(final_audio_path))
+            temp_audio = str(final_audio_path).replace('.mp3', '_temp.wav')
+            self.generate_audio_from_text(script, temp_audio)
+            self._convert_to_mp3(temp_audio, str(final_audio_path))
+            if os.path.exists(temp_audio):
+                os.unlink(temp_audio)
+            return str(final_audio_path)
 
         # Combine all segments into final audio
         console.print(f"🔗 Combining {len(segment_files)} audio segments...")
-        self._combine_audio_files(segment_files, str(final_audio_path))
+        self._combine_audio_files(segment_files, str(temp_combined_path))
+
+        # Convert combined WAV to MP3
+        console.print("🔄 Converting combined audio to MP3...")
+        self._convert_to_mp3(str(temp_combined_path), str(final_audio_path))
+
+        # Clean up temporary combined WAV file
+        if os.path.exists(str(temp_combined_path)):
+            os.unlink(str(temp_combined_path))
 
         # Clean up temporary segment files
         console.print(f"🧹 Cleaning up {len(segment_files)} temporary segment files...")
@@ -637,28 +674,37 @@ class TTSGenerator:
             self.voice_profile = original_voice
 
     def _clean_audio_cues(self, text: str) -> str:
-        """Remove audio cues and formatting that shouldn't be spoken."""
+        """Remove only audio cues that shouldn't be spoken, preserve actual content.
+
+        This is a minimal cleaning function that only removes:
+        - Audio cues in brackets like [LAUGH], [PAUSE]
+        - Emphasis markers like *word* (but keeps the word)
+
+        It PRESERVES:
+        - All actual dialogue text
+        - Speaker labels (handled separately in conversation mode)
+        - Natural punctuation
+        """
         if not text:
             return ""
+
+        # Store original for comparison
+        original_length = len(text)
 
         # Remove audio cues in brackets (e.g., [BOTH LAUGH], [PAUSE], [EXCITED])
         text = re.sub(r"\[.*?\]", "", text)
 
-        # Remove emphasis markers (*word* becomes word) - handle various patterns
+        # Remove emphasis markers but keep the text (*word* becomes word)
         text = re.sub(r"\*([^*]+)\*", r"\1", text)  # *word*
         text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)  # **word**
 
-        # Remove any remaining standalone asterisks (including multiple)
+        # Remove any remaining standalone asterisks
         text = re.sub(r"\*+", "", text)
 
-        # Remove interruption markers (-- becomes pause)
-        text = text.replace("--", " ")
+        # Convert interruption markers to commas (-- becomes ,)
+        text = text.replace("--", ",")
 
-        # Remove speaker labels if they somehow got through
-        text = re.sub(r"^(ALEX|SAM|NARRATOR):\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\n(ALEX|SAM|NARRATOR):\s*", "\n", text, flags=re.IGNORECASE)
-
-        # Remove trailing dots that indicate pauses (... becomes natural pause)
+        # Convert ellipsis to period for better TTS flow (... becomes .)
         text = re.sub(r"\.{3,}", ".", text)
 
         # Clean up markdown-style formatting
@@ -684,6 +730,17 @@ class TTSGenerator:
             return "Content not available for audio generation."
 
         return text
+
+    def _clean_segment_text(self, text: str) -> str:
+        """Clean text for a conversation segment (removes speaker labels)."""
+        # First apply standard cleaning
+        text = self._clean_audio_cues(text)
+
+        # Remove speaker labels since they're already tracked in the segment
+        text = re.sub(r"^(ALEX|SAM|NARRATOR):\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\n(ALEX|SAM|NARRATOR):\s*", "\n", text, flags=re.IGNORECASE)
+
+        return text.strip()
 
     def _generate_pause(self, duration_seconds: float) -> str:
         """Generate a silent pause audio file."""
@@ -819,6 +876,8 @@ class TTSGenerator:
     def _convert_aiff_to_wav(self, input_path: str, output_path: str) -> None:
         """Convert AIFF file to WAV using multiple fallback methods."""
 
+        ffmpeg_available = False
+
         # Method 1: Try ffmpeg (most reliable for all AIFF variants)
         try:
             console.print("🔄 Trying ffmpeg for AIFF to WAV conversion...")
@@ -843,29 +902,32 @@ class TTSGenerator:
                 if input_path != output_path and os.path.exists(input_path):
                     os.unlink(input_path)
                 return
+            ffmpeg_available = True  # ffmpeg exists but conversion failed
         except FileNotFoundError:
-            console.print("[yellow]⚠️  ffmpeg not found, trying alternative methods[/yellow]")
+            console.print("[yellow]⚠️  ffmpeg not found, skipping pydub (requires ffmpeg)[/yellow]")
         except Exception as e:
             console.print(f"[yellow]⚠️  ffmpeg conversion failed: {e}[/yellow]")
+            ffmpeg_available = True  # ffmpeg exists but conversion failed
 
-        # Method 2: Try pydub (handles various formats)
-        try:
-            console.print("🔄 Trying pydub for AIFF to WAV conversion...")
-            from pydub import AudioSegment
+        # Method 2: Try pydub (handles various formats, but requires ffmpeg)
+        if ffmpeg_available:
+            try:
+                console.print("🔄 Trying pydub for AIFF to WAV conversion...")
+                from pydub import AudioSegment
 
-            audio = AudioSegment.from_file(input_path, format="aiff")
-            audio.export(output_path, format="wav")
+                audio = AudioSegment.from_file(input_path, format="aiff")
+                audio.export(output_path, format="wav")
 
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                console.print(f"✅ AIFF successfully converted to WAV with pydub: {os.path.getsize(output_path)} bytes")
-                # Remove original AIFF file if different from output
-                if input_path != output_path and os.path.exists(input_path):
-                    os.unlink(input_path)
-                return
-        except ImportError:
-            console.print("[yellow]⚠️  pydub not available, trying built-in modules[/yellow]")
-        except Exception as e:
-            console.print(f"[yellow]⚠️  pydub conversion failed: {e}[/yellow]")
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    console.print(f"✅ AIFF successfully converted to WAV with pydub: {os.path.getsize(output_path)} bytes")
+                    # Remove original AIFF file if different from output
+                    if input_path != output_path and os.path.exists(input_path):
+                        os.unlink(input_path)
+                    return
+            except ImportError:
+                console.print("[yellow]⚠️  pydub not available, trying built-in modules[/yellow]")
+            except Exception as e:
+                console.print(f"[yellow]⚠️  pydub conversion failed: {e}[/yellow]")
 
         # Method 3: Try Python built-in aifc module (limited support)
         try:
@@ -1080,7 +1142,7 @@ class TTSGenerator:
             raise RuntimeError(f"gTTS generation failed: {e}")
 
     def _generate_with_say(self, text: str, output_path: str) -> None:
-        """Generate audio using macOS 'say' command (improved for WAV output)."""
+        """Generate audio using macOS 'say' command (generates AIFF directly)."""
         try:
             rate = int(self.voice_profile.speed * self.voice_speed * 200)
             voice = self.voice_profile.voice_id or "Alex"
@@ -1088,22 +1150,15 @@ class TTSGenerator:
             # Ensure output directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-            # Create temporary AIFF file (say command's native format)
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp_file:
-                temp_path = tmp_file.name
-
             console.print(f"🎤 macOS say: voice={voice}, rate={rate} WPM")
-            console.print(f"🔧 Temporary AIFF: {temp_path}")
-            console.print(f"🎯 Target WAV: {output_path}")
 
-            # Build say command with proper escaping
-            command = ["say", "-v", voice, "-r", str(rate), "-o", temp_path]
+            # Build say command - output directly to target path as AIFF
+            command = ["say", "-v", voice, "-r", str(rate), "-o", output_path]
 
             # Add text as final argument (safer for special characters)
             command.append(text)
 
-            console.print(f"🚀 Running: say -v {voice} -r {rate} -o [temp_file] [text]")
+            console.print(f"🚀 Running: say -v {voice} -r {rate} -o {output_path}")
 
             result = subprocess.run(
                 command,
@@ -1118,35 +1173,21 @@ class TTSGenerator:
                 console.print(f"❌ say command error: {error_msg}")
                 raise RuntimeError(f"say command failed: {error_msg}")
 
-            # Verify temporary AIFF file was created
-            if not os.path.exists(temp_path):
-                raise RuntimeError(f"say command did not create output file: {temp_path}")
+            # Verify AIFF file was created
+            if not os.path.exists(output_path):
+                raise RuntimeError(f"say command did not create output file: {output_path}")
 
-            file_size = os.path.getsize(temp_path)
+            file_size = os.path.getsize(output_path)
             if file_size == 0:
-                raise RuntimeError(f"say command created empty file: {temp_path}")
+                raise RuntimeError(f"say command created empty file: {output_path}")
 
-            console.print(f"✅ AIFF generated: {file_size} bytes")
-
-            # Convert AIFF to WAV using built-in Python modules
-            console.print("🔄 Converting AIFF to WAV...")
-            self._convert_aiff_to_wav(temp_path, output_path)
-
-            # Clean up temporary AIFF file
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-                console.print("🧹 Cleaned up temporary AIFF file")
+            console.print(f"✅ AIFF audio generated: {file_size} bytes")
+            console.print(f"📁 Output: {output_path}")
 
         except FileNotFoundError:
             raise RuntimeError("'say' command not found. This feature requires macOS.")
         except Exception as e:
             console.print(f"❌ macOS say generation failed: {e}")
-            # Clean up temp file if it exists
-            try:
-                if 'temp_path' in locals() and os.path.exists(temp_path):
-                    os.unlink(temp_path)
-            except:
-                pass
             raise RuntimeError(f"macOS TTS generation failed: {e}")
 
     def _convert_to_mp3(self, input_path: str, output_path: str) -> None:
@@ -1529,18 +1570,45 @@ class TTSGenerator:
                     # Try loading as different formats
                     audio_segment = None
 
-                    # First try as MP3
+                    # Detect file type and load appropriately
                     try:
-                        audio_segment = AudioSegment.from_mp3(file_path)
-                        console.print(f"✅ Loaded as MP3: {len(audio_segment)}ms")
-                    except:
-                        # Try as generic audio file
-                        try:
-                            audio_segment = AudioSegment.from_file(file_path)
-                            console.print(f"✅ Loaded as audio: {len(audio_segment)}ms")
-                        except Exception as load_error:
-                            console.print(f"[yellow]⚠️  Could not load {file_path}: {load_error}[/yellow]")
-                            continue
+                        # Check if file is AIFF (doesn't require ffmpeg with pydub)
+                        with open(file_path, 'rb') as f:
+                            header = f.read(12)
+
+                        if b'FORM' in header and (b'AIFF' in header or b'AIFC' in header):
+                            # Load as AIFF using Python's built-in support
+                            console.print(f"🎵 Detected AIFF file: {file_path}")
+                            import aifc
+                            import io
+
+                            with aifc.open(file_path, 'rb') as aiff_file:
+                                frames = aiff_file.readframes(aiff_file.getnframes())
+                                framerate = aiff_file.getframerate()
+                                channels = aiff_file.getnchannels()
+                                sampwidth = aiff_file.getsampwidth()
+
+                            # Convert to AudioSegment using raw data
+                            audio_segment = AudioSegment(
+                                data=frames,
+                                sample_width=sampwidth,
+                                frame_rate=framerate,
+                                channels=channels
+                            )
+                            console.print(f"✅ Loaded AIFF: {len(audio_segment)}ms")
+                        else:
+                            # Try as MP3 or other format
+                            try:
+                                audio_segment = AudioSegment.from_mp3(file_path)
+                                console.print(f"✅ Loaded as MP3: {len(audio_segment)}ms")
+                            except:
+                                # Try as generic audio file
+                                audio_segment = AudioSegment.from_file(file_path)
+                                console.print(f"✅ Loaded as audio: {len(audio_segment)}ms")
+
+                    except Exception as load_error:
+                        console.print(f"[yellow]⚠️  Could not load {file_path}: {load_error}[/yellow]")
+                        continue
 
                     if audio_segment and len(audio_segment) > 0:
                         combined_audio += audio_segment
