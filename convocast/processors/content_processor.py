@@ -75,15 +75,23 @@ class ContentProcessor:
                             )
                             if dialogue_script:
                                 episode.dialogue_script = dialogue_script
-                                episode.conversation_segments = (
-                                    self._parse_dialogue_segments(dialogue_script)
-                                )
-                                console.print(
-                                    f"✅ Generated LLM conversation with {len(episode.conversation_segments)} segments"
-                                )
-                                # Debug: show first few speakers
-                                speakers = [seg.speaker for seg in episode.conversation_segments[:6]]
-                                console.print(f"🔍 Speaker sequence: {' → '.join(speakers)}")
+                                parsed_segments = self._parse_dialogue_segments(dialogue_script)
+
+                                # Check if parsing succeeded
+                                if parsed_segments and len(parsed_segments) > 0:
+                                    episode.conversation_segments = parsed_segments
+                                    console.print(
+                                        f"✅ Generated LLM conversation with {len(episode.conversation_segments)} segments"
+                                    )
+                                    # Debug: show first few speakers
+                                    speakers = [seg.speaker for seg in episode.conversation_segments[:6]]
+                                    console.print(f"🔍 Speaker sequence: {' → '.join(speakers)}")
+                                else:
+                                    console.print("[yellow]⚠️  Dialogue parsing returned empty, falling back to simple Q&A[/yellow]")
+                                    episode.conversation_segments = self._create_simple_qa_segments(qa_content)
+                                    console.print(f"✅ Created fallback Q&A with {len(episode.conversation_segments)} segments")
+                                    speakers = [seg.speaker for seg in episode.conversation_segments[:6]]
+                                    console.print(f"🔍 Speaker sequence: {' → '.join(speakers)}")
                             else:
                                 console.print("[yellow]⚠️  LLM conversation generation failed, falling back to simple Q&A[/yellow]")
                                 episode.conversation_segments = self._create_simple_qa_segments(qa_content)
@@ -447,6 +455,8 @@ class ContentProcessor:
     ) -> List[ConversationSegment]:
         """Parse dialogue script into conversation segments."""
         console.print("🔍 Parsing dialogue into segments...")
+        console.print(f"📝 Dialogue script length: {len(dialogue_script)} chars")
+        console.print(f"📝 First 200 chars: {dialogue_script[:200]}")
 
         segments = []
         lines = dialogue_script.split("\n")
@@ -459,8 +469,8 @@ class ContentProcessor:
             if not line:
                 continue
 
-            # Check for speaker indicators
-            if line.startswith("ALEX:"):
+            # Check for speaker indicators (case-insensitive)
+            if line.upper().startswith("ALEX:"):
                 if current_speaker and current_text:
                     segments.append(
                         ConversationSegment(
@@ -469,8 +479,9 @@ class ContentProcessor:
                     )
                 current_speaker = "alex"
                 current_text = line[5:].strip()
+                console.print(f"✅ Found ALEX segment")
 
-            elif line.startswith("SAM:"):
+            elif line.upper().startswith("SAM:"):
                 if current_speaker and current_text:
                     segments.append(
                         ConversationSegment(
@@ -479,6 +490,7 @@ class ContentProcessor:
                     )
                 current_speaker = "sam"
                 current_text = line[4:].strip()
+                console.print(f"✅ Found SAM segment")
 
             elif line.startswith("[") and line.endswith("]"):
                 # Audio cue (e.g., [BOTH LAUGH], [PAUSE])
@@ -501,7 +513,13 @@ class ContentProcessor:
                 )
             )
 
-        console.print(f"✅ Parsed {len(segments)} conversation segments")
+        console.print(f"✅ Parsed {len(segments)} conversation segments from dialogue")
+
+        # If no segments were parsed, the dialogue format might be wrong
+        if not segments and dialogue_script.strip():
+            console.print("[yellow]⚠️  No segments parsed from dialogue, dialogue format may be incorrect[/yellow]")
+            console.print("[yellow]   Expected format: 'ALEX: text' or 'SAM: text'[/yellow]")
+
         return segments
 
     def _create_simple_qa_segments(self, qa_content: List[QAContent]) -> List[ConversationSegment]:
