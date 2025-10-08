@@ -288,6 +288,26 @@ class ContentProcessor:
             # Try alternative parsing methods
             qa_items = self._parse_alternative_formats(response)
 
+        # Emergency fallback: if still no Q&A items, create from raw response
+        if not qa_items and response.strip():
+            console.print(
+                "[yellow]⚠️  All parsing failed, creating emergency Q&A from response content[/yellow]"
+            )
+            # Split response into chunks and create Q&A pairs
+            sentences = [s.strip() for s in response.split('.') if s.strip() and len(s.strip()) > 20]
+            if sentences:
+                # Group sentences into Q&A pairs (every 2-3 sentences)
+                for i in range(0, len(sentences), 3):
+                    chunk = '. '.join(sentences[i:min(i+3, len(sentences))]) + '.'
+                    if len(chunk) > 30:
+                        qa_items.append(
+                            QAContent(
+                                question=f"Can you explain more about this topic?",
+                                answer=chunk
+                            )
+                        )
+                console.print(f"🚨 Created {len(qa_items)} emergency Q&A pairs from raw content")
+
         console.print(f"✅ Final result: {len(qa_items)} Q&A pairs extracted")
         return qa_items
 

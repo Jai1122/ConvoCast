@@ -743,17 +743,42 @@ class TTSGenerator:
         return text.strip()
 
     def _generate_pause(self, duration_seconds: float) -> str:
-        """Generate a silent pause audio file."""
+        """Generate a silent pause audio file using ffmpeg."""
         try:
-            # Simple approach: create a very quiet audio file
-            pause_text = " "  # Single space creates minimal audio
             pause_filename = f"pause_{duration_seconds:.1f}s.wav"
             pause_path = self.output_dir / pause_filename
 
-            # Generate very short, quiet audio using default engine
-            self._generate_with_pyttsx3(pause_text, str(pause_path))
-            return str(pause_path)
+            # Check if pause file already exists
+            if os.path.exists(str(pause_path)) and os.path.getsize(str(pause_path)) > 0:
+                return str(pause_path)
 
+            # Use ffmpeg to generate silence
+            console.print(f"🔇 Generating {duration_seconds}s silence...")
+            result = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-f", "lavfi",
+                    "-i", f"anullsrc=r=44100:cl=stereo",
+                    "-t", str(duration_seconds),
+                    "-acodec", "pcm_s16le",
+                    "-y",
+                    str(pause_path)
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode == 0 and os.path.exists(str(pause_path)) and os.path.getsize(str(pause_path)) > 0:
+                console.print(f"✅ Generated silence: {os.path.getsize(str(pause_path))} bytes")
+                return str(pause_path)
+            else:
+                console.print(f"[yellow]⚠️  ffmpeg silence generation failed: {result.stderr}[/yellow]")
+                return ""
+
+        except FileNotFoundError:
+            console.print(f"[yellow]⚠️  ffmpeg not available for pause generation[/yellow]")
+            return ""
         except Exception as e:
             console.print(f"[yellow]⚠️  Could not generate pause: {e}[/yellow]")
             return ""
@@ -1555,13 +1580,32 @@ class TTSGenerator:
 
     def _combine_audio_files(self, file_paths: List[str], output_path: str) -> None:
         """Combine multiple audio files into one with improved settings."""
+        # Filter out non-existent files
+        valid_files = []
+        for file_path in file_paths:
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                valid_files.append(file_path)
+            else:
+                console.print(f"[yellow]⚠️  Skipping missing/empty file: {file_path}[/yellow]")
+
+        if not valid_files:
+            raise RuntimeError("No valid audio files to combine")
+
+        console.print(f"📂 Combining {len(valid_files)} valid audio files")
+
         try:
             # Create a temporary file list for ffmpeg concat
             import tempfile
             with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-                for file_path in file_paths:
-                    f.write(f"file '{file_path}'\n")
+                for file_path in valid_files:
+                    # Use absolute paths and escape properly for ffmpeg
+                    abs_path = os.path.abspath(file_path)
+                    # Escape single quotes in path by replacing ' with '\''
+                    escaped_path = abs_path.replace("'", "'\\''")
+                    f.write(f"file '{escaped_path}'\n")
                 concat_file = f.name
+
+            console.print(f"📝 Created concat file: {concat_file}")
 
             # Use ffmpeg concat demuxer for better results
             result = subprocess.run(
