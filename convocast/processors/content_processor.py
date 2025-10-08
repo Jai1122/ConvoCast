@@ -105,11 +105,21 @@ class ContentProcessor:
                         console.print(f"🔍 Speaker sequence: {' → '.join(speakers)}")
 
                     # Ensure we always have conversation segments
-                    if not episode.conversation_segments:
+                    if not episode.conversation_segments or len(episode.conversation_segments) == 0:
                         console.print("[red]⚠️  No conversation segments created! Creating emergency fallback...[/red]")
-                        episode.conversation_segments = self._create_simple_qa_segments(qa_content)
-                        speakers = [seg.speaker for seg in episode.conversation_segments[:6]]
-                        console.print(f"🚨 Emergency Q&A with {len(episode.conversation_segments)} segments: {' → '.join(speakers)}")
+                        console.print(f"🔍 Debug: conversation_segments type: {type(episode.conversation_segments)}, value: {episode.conversation_segments}")
+                        console.print(f"🔍 Debug: qa_content has {len(qa_content)} items")
+
+                        emergency_segments = self._create_simple_qa_segments(qa_content)
+                        console.print(f"🔍 Emergency segments created: {len(emergency_segments)}")
+
+                        episode.conversation_segments = emergency_segments
+
+                        if episode.conversation_segments and len(episode.conversation_segments) > 0:
+                            speakers = [seg.speaker for seg in episode.conversation_segments[:6]]
+                            console.print(f"🚨 Emergency Q&A with {len(episode.conversation_segments)} segments: {' → '.join(speakers)}")
+                        else:
+                            console.print("[red]🚨🚨 CRITICAL: Emergency fallback also failed to create segments![/red]")
 
                     episodes.append(episode)
                     console.print(f"✅ Generated {len(qa_content)} Q&A items for group")
@@ -496,44 +506,65 @@ class ContentProcessor:
 
     def _create_simple_qa_segments(self, qa_content: List[QAContent]) -> List[ConversationSegment]:
         """Create simple Q&A conversation segments without complex dialogue generation."""
+        console.print(f"🎙️ _create_simple_qa_segments called with {len(qa_content)} Q&A items")
         segments = []
 
         # Add introduction by Alex
-        segments.append(
-            ConversationSegment(
-                speaker="alex",
-                text="Welcome everyone! I'm Alex, and today I have Sam here with me to discuss some important topics. Sam, let's dive into some key questions."
-            )
+        intro_segment = ConversationSegment(
+            speaker="alex",
+            text="Welcome everyone! I'm Alex, and today I have Sam here with me to discuss some important topics. Sam, let's dive into some key questions."
         )
+        segments.append(intro_segment)
+        console.print(f"✅ Added intro segment: {intro_segment.speaker}")
 
         # Create Q&A exchanges
-        for i, qa in enumerate(qa_content):
-            # Alex asks the question
-            question_text = f"Question {i+1}: {qa.question}"
+        if not qa_content:
+            console.print("[yellow]⚠️  No Q&A content provided, creating minimal content[/yellow]")
+            # Create a minimal Q&A exchange if no content
             segments.append(
                 ConversationSegment(
                     speaker="alex",
-                    text=question_text
+                    text="Sam, can you tell us about the topics we're covering today?"
                 )
             )
-
-            # Sam provides the answer
-            answer_text = qa.answer
             segments.append(
                 ConversationSegment(
                     speaker="sam",
-                    text=answer_text
+                    text="Thanks Alex! Today we're covering important onboarding information. Let's make sure everyone has the context they need to get started."
                 )
             )
+            console.print("✅ Added minimal Q&A exchange")
+        else:
+            for i, qa in enumerate(qa_content):
+                # Alex asks the question
+                question_text = f"Question {i+1}: {qa.question}"
+                segments.append(
+                    ConversationSegment(
+                        speaker="alex",
+                        text=question_text
+                    )
+                )
+                console.print(f"✅ Added question segment {i+1}")
+
+                # Sam provides the answer
+                answer_text = qa.answer
+                segments.append(
+                    ConversationSegment(
+                        speaker="sam",
+                        text=answer_text
+                    )
+                )
+                console.print(f"✅ Added answer segment {i+1}")
 
         # Add conclusion by Alex
-        segments.append(
-            ConversationSegment(
-                speaker="alex",
-                text="Thank you Sam for those detailed explanations! That covers all our key topics for today. Thanks everyone for listening!"
-            )
+        conclusion_segment = ConversationSegment(
+            speaker="alex",
+            text="Thank you Sam for those detailed explanations! That covers all our key topics for today. Thanks everyone for listening!"
         )
+        segments.append(conclusion_segment)
+        console.print(f"✅ Added conclusion segment: {conclusion_segment.speaker}")
 
+        console.print(f"🎉 Total segments created: {len(segments)}")
         return segments
 
     def format_for_podcast(self, episode: PodcastEpisode) -> str:
