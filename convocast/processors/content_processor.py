@@ -453,7 +453,7 @@ class ContentProcessor:
     def _parse_dialogue_segments(
         self, dialogue_script: str
     ) -> List[ConversationSegment]:
-        """Parse dialogue script into conversation segments."""
+        """Parse dialogue script into conversation segments with flexible format detection."""
         console.print("🔍 Parsing dialogue into segments...")
         console.print(f"📝 Dialogue script length: {len(dialogue_script)} chars")
         console.print(f"📝 First 200 chars: {dialogue_script[:200]}")
@@ -464,46 +464,63 @@ class ContentProcessor:
         current_speaker = None
         current_text = ""
 
+        # Try multiple speaker detection patterns
+        speaker_patterns = [
+            (r'^ALEX:\s*(.*)$', 'alex', 5),
+            (r'^SAM:\s*(.*)$', 'sam', 4),
+            (r'^Alex:\s*(.*)$', 'alex', 5),
+            (r'^Sam:\s*(.*)$', 'sam', 4),
+            (r'^\*\*ALEX\*\*:\s*(.*)$', 'alex', None),
+            (r'^\*\*SAM\*\*:\s*(.*)$', 'sam', None),
+            (r'^ALEX\s*-\s*(.*)$', 'alex', None),
+            (r'^SAM\s*-\s*(.*)$', 'sam', None),
+        ]
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
 
-            # Check for speaker indicators (case-insensitive)
-            if line.upper().startswith("ALEX:"):
-                if current_speaker and current_text:
-                    segments.append(
-                        ConversationSegment(
-                            speaker=current_speaker.lower(), text=current_text.strip()
+            # Check for speaker indicators using regex patterns
+            speaker_found = False
+            for pattern, speaker_name, prefix_len in speaker_patterns:
+                match = re.match(pattern, line, re.IGNORECASE)
+                if match:
+                    # Save previous speaker's text
+                    if current_speaker and current_text:
+                        segments.append(
+                            ConversationSegment(
+                                speaker=current_speaker.lower(), text=current_text.strip()
+                            )
                         )
-                    )
-                current_speaker = "alex"
-                current_text = line[5:].strip()
-                console.print(f"✅ Found ALEX segment")
 
-            elif line.upper().startswith("SAM:"):
-                if current_speaker and current_text:
-                    segments.append(
-                        ConversationSegment(
-                            speaker=current_speaker.lower(), text=current_text.strip()
-                        )
-                    )
-                current_speaker = "sam"
-                current_text = line[4:].strip()
-                console.print(f"✅ Found SAM segment")
+                    current_speaker = speaker_name
+                    # Extract text after speaker label
+                    if prefix_len:
+                        current_text = line[prefix_len:].strip()
+                    else:
+                        current_text = match.group(1).strip()
 
-            elif line.startswith("[") and line.endswith("]"):
+                    console.print(f"✅ Found {speaker_name.upper()} segment")
+                    speaker_found = True
+                    break
+
+            if speaker_found:
+                continue
+
+            # Check for audio cues
+            if line.startswith("[") and line.endswith("]"):
                 # Audio cue (e.g., [BOTH LAUGH], [PAUSE])
                 audio_cue = line.lower().replace("[", "").replace("]", "")
                 if "both" in audio_cue or "laugh" in audio_cue:
                     segments.append(ConversationSegment(speaker="both", text=line))
                 else:
                     segments.append(ConversationSegment(speaker="narrator", text=line))
+                continue
 
-            else:
-                # Continue current speaker's text
-                if current_speaker and line:
-                    current_text += " " + line
+            # Continue current speaker's text
+            if current_speaker and line:
+                current_text += " " + line
 
         # Don't forget the last segment
         if current_speaker and current_text:
@@ -515,10 +532,45 @@ class ContentProcessor:
 
         console.print(f"✅ Parsed {len(segments)} conversation segments from dialogue")
 
-        # If no segments were parsed, the dialogue format might be wrong
+        # If no segments were parsed, try a desperate fallback - split by sentences
         if not segments and dialogue_script.strip():
-            console.print("[yellow]⚠️  No segments parsed from dialogue, dialogue format may be incorrect[/yellow]")
-            console.print("[yellow]   Expected format: 'ALEX: text' or 'SAM: text'[/yellow]")
+            console.print("[yellow]⚠️  No segments parsed from dialogue, trying fallback sentence splitting...[/yellow]")
+
+            # Try to detect any pattern like "Name:" or "Name -" at start of lines
+            any_speaker_pattern = r'^([A-Z][a-z]+)[\s:_-]+(.+)$'
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                match = re.match(any_speaker_pattern, line)
+                if match:
+                    speaker_candidate = match.group(1).lower()
+                    text = match.group(2).strip()
+
+                    # Map to alex or sam if it looks like a name
+                    if speaker_candidate in ['alex', 'alexandra', 'alice']:
+                        speaker = 'alex'
+                    elif speaker_candidate in ['sam', 'samuel', 'samantha']:
+                        speaker = 'sam'
+                    else:
+                        # Alternate between alex and sam for unknown speakers
+                        speaker = 'alex' if len(segments) % 2 == 0 else 'sam'
+
+                    if text:
+                        segments.append(ConversationSegment(speaker=speaker, text=text))
+                        console.print(f"✅ Fallback: Found {speaker.upper()} segment from pattern")
+
+            console.print(f"📊 Fallback parsing created {len(segments)} segments")
+
+        # If STILL no segments, show detailed error
+        if not segments and dialogue_script.strip():
+            console.print("[yellow]⚠️  All parsing methods failed, dialogue format unrecognized[/yellow]")
+            console.print("[yellow]   Expected formats:[/yellow]")
+            console.print("[yellow]   - 'ALEX: text' or 'SAM: text'[/yellow]")
+            console.print("[yellow]   - '**ALEX**: text' or '**SAM**: text'[/yellow]")
+            console.print("[yellow]   - 'ALEX - text' or 'SAM - text'[/yellow]")
+            console.print(f"[yellow]   Actual content (more): {dialogue_script[:500]}[/yellow]")
 
         return segments
 
