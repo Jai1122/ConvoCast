@@ -1142,7 +1142,7 @@ class TTSGenerator:
             raise RuntimeError(f"gTTS generation failed: {e}")
 
     def _generate_with_say(self, text: str, output_path: str) -> None:
-        """Generate audio using macOS 'say' command (generates AIFF directly)."""
+        """Generate audio using macOS 'say' command (generates AIFF, converts to WAV)."""
         try:
             rate = int(self.voice_profile.speed * self.voice_speed * 200)
             voice = self.voice_profile.voice_id or "Alex"
@@ -1151,21 +1151,24 @@ class TTSGenerator:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
             console.print(f"🎤 macOS say: voice={voice}, rate={rate} WPM")
+            console.print(f"📝 Text length: {len(text)} chars, ~{len(text.split())} words")
 
-            # Build say command - output directly to target path as AIFF
-            command = ["say", "-v", voice, "-r", str(rate), "-o", output_path]
+            # Generate to temporary AIFF file first (say's native format)
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp_file:
+                temp_aiff_path = tmp_file.name
 
-            # Add text as final argument (safer for special characters)
+            # Build say command
+            command = ["say", "-v", voice, "-r", str(rate), "-o", temp_aiff_path]
             command.append(text)
 
-            console.print(f"🚀 Running: say -v {voice} -r {rate} -o {output_path}")
+            console.print(f"🚀 Running: say -v {voice} -r {rate} -o [temp.aiff]")
 
             result = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
-                timeout=300,
-                cwd=os.path.dirname(output_path)  # Set working directory
+                timeout=300
             )
 
             if result.returncode != 0:
@@ -1174,20 +1177,60 @@ class TTSGenerator:
                 raise RuntimeError(f"say command failed: {error_msg}")
 
             # Verify AIFF file was created
-            if not os.path.exists(output_path):
-                raise RuntimeError(f"say command did not create output file: {output_path}")
+            if not os.path.exists(temp_aiff_path):
+                raise RuntimeError(f"say command did not create output file: {temp_aiff_path}")
 
-            file_size = os.path.getsize(output_path)
-            if file_size == 0:
-                raise RuntimeError(f"say command created empty file: {output_path}")
+            aiff_size = os.path.getsize(temp_aiff_path)
+            if aiff_size == 0:
+                raise RuntimeError(f"say command created empty file: {temp_aiff_path}")
 
-            console.print(f"✅ AIFF audio generated: {file_size} bytes")
-            console.print(f"📁 Output: {output_path}")
+            console.print(f"✅ AIFF audio generated: {aiff_size:,} bytes")
+
+            # Convert AIFF to WAV using ffmpeg (most reliable)
+            console.print(f"🔄 Converting AIFF to WAV format...")
+
+            conversion_result = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-i", temp_aiff_path,
+                    "-acodec", "pcm_s16le",  # Standard WAV codec
+                    "-ar", "44100",
+                    "-ac", "2",
+                    "-y",  # Overwrite output
+                    output_path
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+
+            if conversion_result.returncode != 0:
+                console.print(f"[yellow]⚠️  ffmpeg conversion failed: {conversion_result.stderr}[/yellow]")
+                console.print("[yellow]   Trying alternative conversion method...[/yellow]")
+                # Fallback: use the AIFF conversion method
+                self._convert_aiff_to_wav(temp_aiff_path, output_path)
+            else:
+                wav_size = os.path.getsize(output_path)
+                console.print(f"✅ Converted to WAV: {wav_size:,} bytes")
+
+            # Clean up temporary AIFF file
+            if os.path.exists(temp_aiff_path):
+                os.unlink(temp_aiff_path)
+
+            # Verify final WAV file
+            if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+                raise RuntimeError(f"Failed to create valid WAV file: {output_path}")
 
         except FileNotFoundError:
             raise RuntimeError("'say' command not found. This feature requires macOS.")
         except Exception as e:
             console.print(f"❌ macOS say generation failed: {e}")
+            # Clean up temp file if it exists
+            try:
+                if 'temp_aiff_path' in locals() and os.path.exists(temp_aiff_path):
+                    os.unlink(temp_aiff_path)
+            except:
+                pass
             raise RuntimeError(f"macOS TTS generation failed: {e}")
 
     def _convert_to_mp3(self, input_path: str, output_path: str) -> None:
@@ -1236,7 +1279,42 @@ class TTSGenerator:
                 # Verify the output file was created properly
                 if os.path.exists(output_path):
                     output_size = os.path.getsize(output_path)
-                    console.print(f"✓ Successfully converted to MP3: {output_path} ({output_size} bytes)")
+                    console.print(f"✓ Successfully converted to MP3: {output_path} ({output_size:,} bytes)")
+
+                    # Verify duration matches using ffprobe
+                    try:
+                        # Get input duration
+                        input_duration_result = subprocess.run(
+                            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                             "-of", "csv=p=0", input_path],
+                            capture_output=True,
+                            text=True,
+                            timeout=10
+                        )
+                        # Get output duration
+                        output_duration_result = subprocess.run(
+                            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                             "-of", "csv=p=0", output_path],
+                            capture_output=True,
+                            text=True,
+                            timeout=10
+                        )
+
+                        if (input_duration_result.returncode == 0 and output_duration_result.returncode == 0 and
+                            input_duration_result.stdout.strip() and output_duration_result.stdout.strip()):
+                            input_duration = float(input_duration_result.stdout.strip())
+                            output_duration = float(output_duration_result.stdout.strip())
+
+                            console.print(f"🎵 Input duration: {input_duration:.2f}s, Output duration: {output_duration:.2f}s")
+
+                            # Check if output is truncated (less than 80% of input)
+                            if output_duration < input_duration * 0.8:
+                                console.print(f"[red]⚠️  WARNING: MP3 appears truncated! {output_duration:.2f}s vs {input_duration:.2f}s[/red]")
+                                raise RuntimeError(f"MP3 conversion truncated audio: {output_duration:.2f}s vs {input_duration:.2f}s")
+                            else:
+                                console.print(f"✅ Duration verification passed")
+                    except Exception as duration_check_error:
+                        console.print(f"[yellow]⚠️  Could not verify duration: {duration_check_error}[/yellow]")
 
                     # Basic sanity check - MP3 should be smaller but not dramatically so
                     if output_size == 0:
