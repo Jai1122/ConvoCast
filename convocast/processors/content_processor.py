@@ -456,7 +456,7 @@ class ContentProcessor:
         """Parse dialogue script into conversation segments with flexible format detection."""
         console.print("🔍 Parsing dialogue into segments...")
         console.print(f"📝 Dialogue script length: {len(dialogue_script)} chars")
-        console.print(f"📝 First 200 chars: {dialogue_script[:200]}")
+        console.print(f"📝 First 300 chars: {dialogue_script[:300]}")
 
         segments = []
         lines = dialogue_script.split("\n")
@@ -464,44 +464,54 @@ class ContentProcessor:
         current_speaker = None
         current_text = ""
 
-        # Try multiple speaker detection patterns
+        # Enhanced speaker detection patterns with more flexibility
         speaker_patterns = [
-            (r'^ALEX:\s*(.*)$', 'alex', 5),
-            (r'^SAM:\s*(.*)$', 'sam', 4),
-            (r'^Alex:\s*(.*)$', 'alex', 5),
-            (r'^Sam:\s*(.*)$', 'sam', 4),
-            (r'^\*\*ALEX\*\*:\s*(.*)$', 'alex', None),
-            (r'^\*\*SAM\*\*:\s*(.*)$', 'sam', None),
-            (r'^ALEX\s*-\s*(.*)$', 'alex', None),
-            (r'^SAM\s*-\s*(.*)$', 'sam', None),
+            # Primary format from LLM (ALEX: and SAM:)
+            (r'^\s*ALEX:\s*(.*)$', 'alex', None),
+            (r'^\s*SAM:\s*(.*)$', 'sam', None),
+            # Capitalized variants
+            (r'^\s*Alex:\s*(.*)$', 'alex', None),
+            (r'^\s*Sam:\s*(.*)$', 'sam', None),
+            # Bold markdown format
+            (r'^\s*\*\*ALEX\*\*:\s*(.*)$', 'alex', None),
+            (r'^\s*\*\*SAM\*\*:\s*(.*)$', 'sam', None),
+            (r'^\s*\*\*Alex\*\*:\s*(.*)$', 'alex', None),
+            (r'^\s*\*\*Sam\*\*:\s*(.*)$', 'sam', None),
+            # Dash separator format
+            (r'^\s*ALEX\s*[-–—]\s*(.*)$', 'alex', None),
+            (r'^\s*SAM\s*[-–—]\s*(.*)$', 'sam', None),
+            # Parenthesis format
+            (r'^\s*\(ALEX\):\s*(.*)$', 'alex', None),
+            (r'^\s*\(SAM\):\s*(.*)$', 'sam', None),
         ]
 
+        segments_found_count = 0
         for line in lines:
+            line_original = line  # Keep original for debugging
             line = line.strip()
             if not line:
                 continue
 
             # Check for speaker indicators using regex patterns
             speaker_found = False
-            for pattern, speaker_name, prefix_len in speaker_patterns:
+            for pattern, speaker_name, _ in speaker_patterns:
                 match = re.match(pattern, line, re.IGNORECASE)
                 if match:
-                    # Save previous speaker's text
-                    if current_speaker and current_text:
-                        segments.append(
-                            ConversationSegment(
-                                speaker=current_speaker.lower(), text=current_text.strip()
-                            )
+                    # Save previous speaker's text if we have content
+                    if current_speaker and current_text.strip():
+                        segment = ConversationSegment(
+                            speaker=current_speaker.lower(),
+                            text=current_text.strip()
                         )
+                        segments.append(segment)
+                        segments_found_count += 1
+                        console.print(f"✅ Segment #{segments_found_count}: {current_speaker.upper()} ({len(current_text.strip())} chars)")
 
                     current_speaker = speaker_name
-                    # Extract text after speaker label
-                    if prefix_len:
-                        current_text = line[prefix_len:].strip()
-                    else:
-                        current_text = match.group(1).strip()
+                    # Extract text after speaker label using regex group
+                    captured_text = match.group(1).strip() if match.lastindex and match.lastindex >= 1 else ""
+                    current_text = captured_text
 
-                    console.print(f"✅ Found {speaker_name.upper()} segment")
                     speaker_found = True
                     break
 
@@ -523,14 +533,16 @@ class ContentProcessor:
                 current_text += " " + line
 
         # Don't forget the last segment
-        if current_speaker and current_text:
-            segments.append(
-                ConversationSegment(
-                    speaker=current_speaker.lower(), text=current_text.strip()
-                )
+        if current_speaker and current_text.strip():
+            final_segment = ConversationSegment(
+                speaker=current_speaker.lower(),
+                text=current_text.strip()
             )
+            segments.append(final_segment)
+            segments_found_count += 1
+            console.print(f"✅ Final segment #{segments_found_count}: {current_speaker.upper()} ({len(current_text.strip())} chars)")
 
-        console.print(f"✅ Parsed {len(segments)} conversation segments from dialogue")
+        console.print(f"🎉 Successfully parsed {len(segments)} conversation segments from dialogue")
 
         # If no segments were parsed, try a desperate fallback - split by sentences
         if not segments and dialogue_script.strip():

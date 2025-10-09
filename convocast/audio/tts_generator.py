@@ -87,22 +87,22 @@ class TTSGenerator:
             speed=0.75,
             pitch=1.0,
         ),
-        # Conversation-specific voices (Platform optimized)
+        # Conversation-specific voices (Platform optimized for natural, human-like speech)
         "alex_female": VoiceProfile(
             name="Alex - Curious Female Host",
             engine=TTSEngine.MACOS_SAY if platform.system() == "Darwin" else TTSEngine.PYTTSX3,
             voice_id="Samantha" if platform.system() == "Darwin" else "female",  # High quality female voice
             language="en-US",
-            speed=0.8,  # Energetic pace
-            pitch=1.0,
+            speed=0.85,  # More natural conversational pace
+            pitch=1.05,  # Slightly higher for warmth
         ),
         "sam_male": VoiceProfile(
             name="Sam - Knowledgeable Male Expert",
             engine=TTSEngine.MACOS_SAY if platform.system() == "Darwin" else TTSEngine.PYTTSX3,
             voice_id="Alex" if platform.system() == "Darwin" else "male",  # High quality male voice
             language="en-US",
-            speed=0.75,   # Thoughtful pace
-            pitch=1.0,
+            speed=0.82,   # Balanced, clear pace (not too slow)
+            pitch=0.98,   # Natural male pitch
         ),
         # eSpeak voices (lightweight offline backup)
         "espeak_female": VoiceProfile(
@@ -803,14 +803,16 @@ class TTSGenerator:
                             console.print(f"🎤 Using voice: {voice.name}")
                             break
 
-            # Set properties with validation
+            # Set properties with validation for natural, human-like speech
             rate = engine.getProperty("rate")
             if rate:
-                new_rate = int(rate * self.voice_profile.speed * self.voice_speed)
-                # Clamp rate to reasonable bounds
-                new_rate = max(50, min(500, new_rate))
+                # Optimize for conversational pace (not too fast, not too slow)
+                # Natural speech: 150-180 WPM
+                new_rate = int(rate * self.voice_profile.speed * self.voice_speed * 0.95)  # Slightly reduce default pace
+                # Clamp rate to natural conversational bounds
+                new_rate = max(120, min(200, new_rate))  # Narrower range for better quality
                 engine.setProperty("rate", new_rate)
-                console.print(f"🎤 Speech rate: {new_rate} WPM")
+                console.print(f"🎤 Speech rate: {new_rate} WPM (natural conversational pace)")
 
             volume = engine.getProperty("volume")
             if volume is not None:
@@ -1167,15 +1169,22 @@ class TTSGenerator:
             raise RuntimeError(f"gTTS generation failed: {e}")
 
     def _generate_with_say(self, text: str, output_path: str) -> None:
-        """Generate audio using macOS 'say' command (generates AIFF, converts to WAV)."""
+        """Generate audio using macOS 'say' command with enhanced naturalness (generates AIFF, converts to WAV)."""
         try:
-            rate = int(self.voice_profile.speed * self.voice_speed * 200)
+            # Optimize speech rate for natural, human-like delivery
+            # macOS 'say' uses words per minute (default is ~175 WPM)
+            # For more natural speech: 160-180 WPM is conversational
+            base_rate = 170  # More natural than default 200
+            rate = int(self.voice_profile.speed * self.voice_speed * base_rate)
+            # Clamp to reasonable bounds for natural speech
+            rate = max(140, min(200, rate))
+
             voice = self.voice_profile.voice_id or "Alex"
 
             # Ensure output directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-            console.print(f"🎤 macOS say: voice={voice}, rate={rate} WPM")
+            console.print(f"🎤 macOS say: voice={voice}, rate={rate} WPM (optimized for natural speech)")
             console.print(f"📝 Text length: {len(text)} chars, ~{len(text.split())} words")
 
             # Generate to temporary AIFF file first (say's native format)
@@ -1183,9 +1192,8 @@ class TTSGenerator:
             with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp_file:
                 temp_aiff_path = tmp_file.name
 
-            # Build say command
-            command = ["say", "-v", voice, "-r", str(rate), "-o", temp_aiff_path]
-            command.append(text)
+            # Build say command - IMPORTANT: text must be passed as separate argument, not appended
+            command = ["say", "-v", voice, "-r", str(rate), "-o", temp_aiff_path, text]
 
             console.print(f"🚀 Running: say -v {voice} -r {rate} -o [temp.aiff]")
 
